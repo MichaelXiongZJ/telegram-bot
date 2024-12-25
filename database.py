@@ -23,6 +23,8 @@ class DatabaseManager:
                                 last_active TIMESTAMP)''')
             await db.execute('''CREATE TABLE IF NOT EXISTS whitelist (
                                 user_id INTEGER PRIMARY KEY)''')
+            await db.execute('''CREATE TABLE IF NOT EXISTS chat_settings (
+                                chat_id INTEGER PRIMARY KEY)''')
             await db.commit()
 
     async def update_user_activity(self, user_id: int):
@@ -33,3 +35,14 @@ class DatabaseManager:
                                  DO UPDATE SET last_active = excluded.last_active''',
                               (user_id, datetime.now()))
             await db.commit()
+
+    async def save_chat_id(self, chat_id: int):
+        async with await self.get_connection() as db:
+            await db.execute('INSERT OR IGNORE INTO chat_settings (chat_id) VALUES (?)', (chat_id,))
+            await db.commit()
+
+    async def get_all_chat_ids(self):
+        async with await self.get_connection() as db:
+            cursor = await db.execute('SELECT chat_id FROM chat_settings')
+            rows = await cursor.fetchall()
+            return [row[0] for row in rows]

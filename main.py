@@ -7,6 +7,7 @@ Main Application File
 - Implements rate limiting, logging improvements, and async database persistence.
 - Periodically kicks inactive users.
 - Translates English messages to Chinese.
+- Supports multiple groups dynamically.
 """
 
 from telegram import Update
@@ -20,13 +21,11 @@ from database import DatabaseManager
 import asyncio
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from pydantic import ValidationError
-import dotenv
 
 # Load environment variables with error handling
 try:
     config = BotConfig()
     TOKEN = config.TOKEN
-    CHAT_ID = config.CHAT_ID
     BOT_OWNER_ID = config.BOT_OWNER_ID
     RATE_LIMIT_MESSAGES = config.RATE_LIMIT_MESSAGES
     RATE_LIMIT_WINDOW = config.RATE_LIMIT_WINDOW
@@ -50,10 +49,6 @@ formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 file_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
 
-# Log a warning if CHAT_ID is missing but allow the bot to run
-if not CHAT_ID:
-    logger.warning("CHAT_ID is missing. Use /setchatid in the group to set it.")
-
 # --- Error Handler --- #
 async def error_handler(update: Update, context: CallbackContext) -> None:
     error_message = f"Exception while handling an update:\n{context.error}"
@@ -65,15 +60,16 @@ async def error_handler(update: Update, context: CallbackContext) -> None:
 
 # --- Periodic Inactive User Kick (Weekly) --- #
 async def kick_inactive_users_weekly() -> None:
-    logger.info("Running weekly inactive user kick...")
-    await kick_inactive_members()
-  
+    logger.info("Running weekly inactive user kick for all groups...")
+    chat_ids = db.get_all_chat_ids()
+    for chat_id in chat_ids:
+        await kick_inactive_members(chat_id)
+
 async def set_chat_id(update: Update, context: CallbackContext) -> None:
-    global CHAT_ID
-    CHAT_ID = update.message.chat_id
-    dotenv.set_key('.env', 'CHAT_ID', str(CHAT_ID))
-    await update.message.reply_text(f"Chat ID set to: {CHAT_ID}")
-    logger.info(f"Chat ID {CHAT_ID} saved to .env")
+    chat_id = update.message.chat_id
+    db.save_chat_id(chat_id)  # Save chat ID to database
+    await update.message.reply_text(f"Chat ID {chat_id} saved to database.")
+    logger.info(f"Chat ID {chat_id} saved to database.")
 
 # --- Main Application Setup --- #
 def main() -> None:
