@@ -5,3 +5,5 @@ deep-translator
 asyncio
 apscheduler
 urllib3
+pydantic-settings
+python-dotenv

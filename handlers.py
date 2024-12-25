@@ -15,7 +15,9 @@ import re
 import logging
 from rate_limiter import rate_limit
 from database import DatabaseManager
+from config import BotConfig
 
+config = BotConfig()
 translator = GoogleTranslator(source='auto', target='zh-cn')
 db = DatabaseManager()
 FEATURES = {
@@ -24,7 +26,7 @@ FEATURES = {
 }
 
 async def start(update: Update, context: CallbackContext) -> None:
-    if rate_limit(update.message.from_user.id, 5, 60):
+    if rate_limit(update.message.from_user.id, config.RATE_LIMIT_MESSAGES, config.RATE_LIMIT_WINDOW):
         await update.message.reply_text('Too many requests. Please wait.')
         return
     await update.message.reply_text('Hello! I am a bot made by Kuma, I will make the group clean and active.')

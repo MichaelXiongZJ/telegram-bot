@@ -12,7 +12,7 @@ Main Application File
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 import logging
-from config import get_config
+from config import BotConfig
 from handlers import start, track_activity, whitelist_user, toggle_feature, configure_bot, help_command, translate_message, kick_inactive_members
 from scheduler import schedule_jobs
 from rate_limiter import rate_limit
@@ -21,12 +21,12 @@ import asyncio
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # Load environment variables
-config = get_config()
-TOKEN = config['TOKEN']
-CHAT_ID = config['CHAT_ID']
-BOT_OWNER_ID = config['BOT_OWNER_ID']
-RATE_LIMIT_MESSAGES = config['RATE_LIMIT_MESSAGES']
-RATE_LIMIT_WINDOW = config['RATE_LIMIT_WINDOW']
+config = BotConfig()
+TOKEN = config.TOKEN
+CHAT_ID = config.CHAT_ID
+BOT_OWNER_ID = config.BOT_OWNER_ID
+RATE_LIMIT_MESSAGES = config.RATE_LIMIT_MESSAGES
+RATE_LIMIT_WINDOW = config.RATE_LIMIT_WINDOW
 
 # Initialize Database
 db = DatabaseManager()
