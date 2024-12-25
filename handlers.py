@@ -16,8 +16,15 @@ import logging
 from rate_limiter import rate_limit
 from database import DatabaseManager
 from config import BotConfig
+from pydantic import ValidationError
 
-config = BotConfig()
+try:
+    config = BotConfig()
+except ValidationError as e:
+    logger = logging.getLogger(__name__)
+    logger.error(f"Configuration Error: {e}")
+    exit(1)
+
 translator = GoogleTranslator(source='auto', target='zh-cn')
 db = DatabaseManager()
 FEATURES = {
@@ -41,6 +48,7 @@ async def help_command(update: Update, context: CallbackContext) -> None:
         "/configure <feature> <on/off> - Configure bot features (admin only)"
     )
     await update.message.reply_text(help_text)
+
 
 async def track_activity(update: Update, context: CallbackContext) -> None:
     await db.update_user_activity(update.message.from_user.id)

@@ -19,17 +19,28 @@ from rate_limiter import rate_limit
 from database import DatabaseManager
 import asyncio
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from pydantic import ValidationError
+import dotenv
 
-# Load environment variables
-config = BotConfig()
-TOKEN = config.TOKEN
-CHAT_ID = config.CHAT_ID
-BOT_OWNER_ID = config.BOT_OWNER_ID
-RATE_LIMIT_MESSAGES = config.RATE_LIMIT_MESSAGES
-RATE_LIMIT_WINDOW = config.RATE_LIMIT_WINDOW
+# Load environment variables with error handling
+try:
+    config = BotConfig()
+    TOKEN = config.TOKEN
+    CHAT_ID = config.CHAT_ID
+    BOT_OWNER_ID = config.BOT_OWNER_ID
+    RATE_LIMIT_MESSAGES = config.RATE_LIMIT_MESSAGES
+    RATE_LIMIT_WINDOW = config.RATE_LIMIT_WINDOW
+except ValidationError as e:
+    logger = logging.getLogger(__name__)
+    logger.error(f"Configuration Error: {e}")
+    exit(1)
 
 # Initialize Database
-db = DatabaseManager()
+try:
+    db = DatabaseManager()
+except Exception as e:
+    logger.error(f"Database Initialization Failed: {e}")
+    exit(1)
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -39,10 +50,9 @@ formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 file_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
 
-# Ensure critical environment variables are present
-if not TOKEN or not CHAT_ID or not BOT_OWNER_ID:
-    logger.error("Bot token, chat ID, or bot owner ID is missing. Check .env file.")
-    exit(1)
+# Log a warning if CHAT_ID is missing but allow the bot to run
+if not CHAT_ID:
+    logger.warning("CHAT_ID is missing. Use /setchatid in the group to set it.")
 
 # --- Error Handler --- #
 async def error_handler(update: Update, context: CallbackContext) -> None:
@@ -57,10 +67,13 @@ async def error_handler(update: Update, context: CallbackContext) -> None:
 async def kick_inactive_users_weekly() -> None:
     logger.info("Running weekly inactive user kick...")
     await kick_inactive_members()
-
-async def get_chat_id(update: Update, context: CallbackContext) -> None:
-    await update.message.reply_text(f"Chat ID: {update.message.chat_id}")
-
+  
+async def set_chat_id(update: Update, context: CallbackContext) -> None:
+    global CHAT_ID
+    CHAT_ID = update.message.chat_id
+    dotenv.set_key('.env', 'CHAT_ID', str(CHAT_ID))
+    await update.message.reply_text(f"Chat ID set to: {CHAT_ID}")
+    logger.info(f"Chat ID {CHAT_ID} saved to .env")
 
 # --- Main Application Setup --- #
 def main() -> None:
@@ -68,7 +81,7 @@ def main() -> None:
     application = Application.builder().token(TOKEN).build()
     
     # Command Handlers with Rate Limiting
-    application.add_handler(CommandHandler('getchatid', get_chat_id))
+    application.add_handler(CommandHandler('setchatid', set_chat_id))
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CommandHandler('whitelist', whitelist_user, filters=filters.ChatType.GROUPS & filters.User.ADMIN))
     application.add_handler(CommandHandler('toggle', toggle_feature, filters=filters.ChatType.GROUPS & filters.User.ADMIN))
