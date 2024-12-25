@@ -6,6 +6,7 @@ Main Application File
 - Manages polling and error handling.
 - Implements rate limiting, logging improvements, and async database persistence.
 - Periodically kicks inactive users.
+- Translates English messages to Chinese.
 """
 
 from telegram import Update
