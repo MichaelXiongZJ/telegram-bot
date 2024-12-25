@@ -10,13 +10,13 @@ Command and Message Handlers
 from telegram import Update
 from telegram.ext import CallbackContext
 from datetime import datetime
-from googletrans import Translator
+from deep_translator import GoogleTranslator
 import re
 import logging
 from rate_limiter import rate_limit
 from database import DatabaseManager
 
-translator = Translator()
+translator = GoogleTranslator(source='auto', target='zh-cn')
 db = DatabaseManager()
 FEATURES = {
     'inactive_user_kick': True,
@@ -44,10 +44,9 @@ async def track_activity(update: Update, context: CallbackContext) -> None:
     await db.update_user_activity(update.message.from_user.id)
 
 async def translate_message(update: Update, context: CallbackContext) -> None:
-    # Match if there are multiple consecutive English words
     if re.search(r'\b[a-zA-Z]{3,}\b', update.message.text):
         try:
-            translated = translator.translate(update.message.text, dest='zh-cn').text
+            translated = translator.translate(update.message.text)
             await update.message.reply_text(f'Translation: {translated}')
         except Exception as e:
             logger.error(f"Translation failed: {e}")
