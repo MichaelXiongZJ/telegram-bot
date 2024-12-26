@@ -1,3 +1,3 @@
 .env
-.db
-.log
+bot_data.db
+bot_debug.log
