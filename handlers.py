@@ -131,6 +131,7 @@ async def help_command(
         f"• Time window: {config.RATE_LIMIT_WINDOW} seconds\n"
         f"• Inactive threshold: {config.INACTIVE_DAYS_THRESHOLD} days\n"
         "*Current Translation Settings:*\n"
+        "/toggle translation* on/off\n"
         f"• EN -> ZH: {'Enabled' if config.TRANSLATE_EN_TO_ZH else 'Disabled'}\n"
         f"• ZH -> EN: {'Enabled' if config.TRANSLATE_ZH_TO_EN else 'Disabled'}\n"
     )
@@ -217,10 +218,6 @@ async def toggle_command(
     **kwargs
 ) -> None:
     """Toggle features on/off"""
-    if not await is_admin(update, context, config):
-        await update.message.reply_text('This command is only available to administrators.')
-        return
-
     if len(context.args) != 2:
         await update.message.reply_text(
             'Usage: /toggle <feature> <on/off>\n'
