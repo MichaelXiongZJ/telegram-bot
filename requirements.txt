@@ -9,4 +9,3 @@ pydantic-settings
 python-dotenv
 langdetect
 spacy
-# fasttext

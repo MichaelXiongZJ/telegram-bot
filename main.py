@@ -13,7 +13,7 @@ from config import BotConfig
 from database import DatabaseManager
 from handlers import (
     help_command, configure_command, handle_message,
-    toggle_command, kick_inactive_members
+    toggle_command, kick_inactive_members, handle_new_members
 )
 
 logger = logging.getLogger(__name__)
@@ -34,7 +34,7 @@ def setup_logging() -> None:
 
     # File handler for all logs
     file_handler = logging.FileHandler('bot_debug.log')
-    file_handler.setLevel(logging.DEBUG)
+    file_handler.setLevel(logging.INFO)
     file_handler.setFormatter(detailed_formatter)
     root_logger.addHandler(file_handler)
 
@@ -127,10 +127,16 @@ def main() -> None:
         application.add_handler(CommandHandler("toggle",
             lambda update, context: toggle_command(update, context, **get_handler_deps(context))))
             
-        logger.debug("Adding message handler")
+        logger.debug("Adding message handlers")
         application.add_handler(MessageHandler(
             filters.TEXT & ~filters.COMMAND,
             lambda update, context: handle_message(update, context, **get_handler_deps(context))))
+            
+        # Add new member handler
+        logger.debug("Adding new member handler")
+        application.add_handler(MessageHandler(
+            filters.StatusUpdate.NEW_CHAT_MEMBERS,
+            lambda update, context: handle_new_members(update, context, **get_handler_deps(context))))
         
         logger.info("All handlers added successfully")
         

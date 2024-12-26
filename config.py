@@ -4,7 +4,6 @@ Bot configuration
 """
 from pydantic_settings import BaseSettings
 from dotenv import load_dotenv
-import os
 
 load_dotenv()
 
@@ -19,7 +18,8 @@ class BotConfig(BaseSettings):
     INACTIVE_DAYS_THRESHOLD: int = 30
     
     # Features
-    TRANSLATION_ENABLED: bool = True
+    TRANSLATE_EN_TO_ZH: bool = True  # English to Chinese toggle
+    TRANSLATE_ZH_TO_EN: bool = True  # Chinese to English toggle
     
     class Config:
         env_file = '.env'
