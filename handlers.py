@@ -1,38 +1,46 @@
 # --- handlers.py ---
 """
 Command and Message Handlers
-- Manages user commands and message processing
-- Implements feature toggles and admin controls
-- Handles translations and user activity tracking
 """
-
 from telegram import Update
 from telegram.ext import CallbackContext
 from datetime import datetime
 import logging
 from typing import Any, Dict
 from deep_translator import GoogleTranslator
+from langdetect import detect
 import re
-from database import DatabaseManager
+from database import DatabaseManager, DatabaseError
 from config import BotConfig
+from logging_utils import log_command, log_message
 
 logger = logging.getLogger(__name__)
 translator = GoogleTranslator(source='auto', target='zh-CN')
 
-async def is_admin(update: Update, context: CallbackContext) -> bool:
-    """Check if the user is an admin in the current chat"""
+# Move is_admin to top of the file, before any other functions
+async def is_admin(update: Update, context: CallbackContext, config: BotConfig) -> bool:
+    """Check if user is admin, creator, or bot owner"""
     try:
         user = update.effective_user
         chat = update.effective_chat
         if not user or not chat:
             return False
             
+        # Check if user is bot owner
+        if user.id == config.BOT_OWNER_ID:
+            logger.info(f"User {user.id} is bot owner")
+            return True
+            
+        # Get member info
         member = await context.bot.get_chat_member(chat.id, user.id)
-        return member.status in ['administrator', 'creator']
+        is_admin = member.status in ['administrator', 'creator']
+        logger.info(f"User {user.id} admin status check: {is_admin} ({member.status})")
+        return is_admin
     except Exception as e:
         logger.error(f"Error checking admin status: {e}")
         return False
 
+@log_command
 async def start(
     update: Update,
     context: CallbackContext,
@@ -43,21 +51,140 @@ async def start(
     """Handle /start command"""
     await update.message.reply_text('Hello! I am a bot made by Kuma, I will make the group clean and active.')
 
+@log_command
 async def help_command(
     update: Update,
     context: CallbackContext,
+    config: BotConfig,
     **kwargs
 ) -> None:
-    """Handle /help command"""
+    """Handle /help command with detailed usage information"""
     help_text = (
-        "Available Commands:\n"
-        "/start - Start the bot\n"
-        "/help - Show this help message\n"
-        "/whitelist <user_id> - Whitelist a user (admin only)\n"
-        "/toggle <feature> - Toggle feature on/off (admin only)\n"
-        "/configure <feature> <on/off> - Configure bot features (admin only)"
+        "🤖 *Bot Commands and Features*\n\n"
+        "*Basic Commands:*\n"
+        "• `/start` - Start the bot and receive welcome message\n"
+        "• `/help` - Show this help message\n\n"
+        
+        "*Admin Commands:*\n"
+        "• `/whitelist <user_id> [add/remove]` - Manage whitelist\n"
+        "  Examples:\n"
+        "  `/whitelist 123456 add` - Add user to whitelist\n"
+        "  `/whitelist 123456 remove` - Remove user from whitelist\n\n"
+        
+        "• `/feature <feature> <on/off>` - Enable/disable features\n"
+        "  (Also works with /toggle or /configure)\n"
+        "  Available features:\n"
+        "  - `inactive_kick` - Auto-remove inactive users\n"
+        "  - `translation` - English to Chinese translation\n"
+        "  Examples:\n"
+        "  `/feature translation on` - Enable translation\n"
+        "  `/feature inactive_kick off` - Disable inactive user kick\n\n"
+        
+        "*Automatic Features:*\n"
+        "• *Activity Tracking*\n"
+        "  - Bot tracks user activity for inactive user management\n"
+        "  - Users inactive for " + str(config.INACTIVE_DAYS_THRESHOLD) + " days may be removed\n"
+        "  - Whitelisted users are exempt from removal\n\n"
+        
+        "• *Translation*\n"
+        "  - Automatically translates English messages to Chinese\n"
+        "  - Must contain at least 2 words to be translated\n"
+        "  - Can be disabled using `/feature translation off`\n\n"
+        
+        "*Rate Limiting:*\n"
+        f"• Limited to {config.RATE_LIMIT_MESSAGES} commands per {config.RATE_LIMIT_WINDOW} seconds\n\n"
+        
+        "*Note:*\n"
+        "• Admin commands can only be used by group administrators\n"
+        "• Bot owner has access to all commands in all groups\n"
+        "• Features can be configured independently for each group"
     )
-    await update.message.reply_text(help_text)
+    
+    try:
+        await update.message.reply_text(
+            help_text,
+            parse_mode='Markdown',
+            disable_web_page_preview=True
+        )
+    except Exception as e:
+        logger.error(f"Error sending formatted help: {e}")
+        await update.message.reply_text(help_text)
+
+@log_command
+async def whitelist_user(
+    update: Update,
+    context: CallbackContext,
+    db: DatabaseManager,
+    config: BotConfig,
+    **kwargs
+) -> None:
+    """Handle /whitelist command"""
+    if not await is_admin(update, context, config):
+        await update.message.reply_text('This command is only available to administrators.')
+        return
+        
+    if not context.args or len(context.args) not in [1, 2]:
+        await update.message.reply_text('Usage: /whitelist <user_id> [add/remove]')
+        return
+        
+    try:
+        user_id = int(context.args[0])
+        action = context.args[1].lower() if len(context.args) > 1 else 'add'
+        
+        if action not in ['add', 'remove']:
+            await update.message.reply_text('Invalid action. Use "add" or "remove".')
+            return
+            
+        await db.manage_whitelist(
+            user_id,
+            update.effective_chat.id,
+            update.effective_user.id,
+            add=(action == 'add')
+        )
+        
+        action_text = 'whitelisted' if action == 'add' else 'removed from whitelist'
+        await update.message.reply_text(f'User {user_id} has been {action_text}.')
+    except ValueError:
+        await update.message.reply_text('Invalid user ID.')
+    except Exception as e:
+        logger.error(f"Whitelist operation failed: {e}")
+        await update.message.reply_text('Failed to update whitelist.')
+
+@log_command
+async def feature_command(
+    update: Update,
+    context: CallbackContext,
+    db: DatabaseManager,
+    config: BotConfig,
+    **kwargs
+) -> None:
+    """Handle feature command"""
+    if not await is_admin(update, context, config):
+        await update.message.reply_text('This command is only available to administrators.')
+        return
+        
+    if len(context.args) != 2:
+        await update.message.reply_text('Usage: /feature <feature_name> <on/off>')
+        return
+        
+    feature, state = context.args[0].lower(), context.args[1].lower()
+    
+    if feature not in config.DEFAULT_FEATURES:
+        features_list = ', '.join(config.DEFAULT_FEATURES.keys())
+        await update.message.reply_text(f'Invalid feature. Available features: {features_list}')
+        return
+        
+    if state not in ['on', 'off']:
+        await update.message.reply_text('Invalid state. Use "on" or "off".')
+        return
+        
+    try:
+        enabled = (state == 'on')
+        await db.set_chat_setting(update.effective_chat.id, feature, enabled)
+        await update.message.reply_text(f'Feature "{feature}" has been turned {state}.')
+    except Exception as e:
+        logger.error(f"Feature toggle failed: {e}")
+        await update.message.reply_text('Failed to toggle feature.')
 
 async def track_activity(
     update: Update,
@@ -65,8 +192,12 @@ async def track_activity(
     db: DatabaseManager,
     **kwargs
 ) -> None:
-    """Track user activity"""
+    """Track user activity and log message"""
     try:
+        # Log the message first
+        await log_message(update)
+        
+        # Then track activity
         await db.update_user_activity(
             update.message.from_user.id,
             update.message.chat_id
@@ -92,10 +223,16 @@ async def translate_message(
         if not translation_enabled:
             return
 
-        if re.search(r'\b[a-zA-Z]{3,}\b', update.message.text):
+        text = update.message.text
+        # Check if message contains enough text
+        if len(text.split()) >= 2:
             try:
-                translated = translator.translate(update.message.text)
-                await update.message.reply_text(f'Translation: {translated}')
+                # Detect language
+                lang = detect(text)
+                if lang == 'en':
+                    translated = translator.translate(text)
+                    await update.message.reply_text(f'Translation: {translated}')
+                    logger.info(f"Translated message:\nOriginal: {text}\nTranslated: {translated}")
             except Exception as e:
                 logger.error(f"Translation failed: {e}")
                 await update.message.reply_text('Translation service is currently unavailable.')
@@ -110,16 +247,12 @@ async def kick_inactive_members(
     """Kick inactive members from all chats"""
     logger.info("Starting inactive user kick job")
     try:
-        async with await db.get_connection() as conn:
-            cursor = await conn.execute('SELECT DISTINCT chat_id FROM user_activity')
+        async with db.get_connection() as conn:
+            cursor = await conn.execute('SELECT DISTINCT chat_id FROM chat_settings WHERE feature_inactive_kick = TRUE')
             chat_ids = [row[0] for row in await cursor.fetchall()]
 
         for chat_id in chat_ids:
             try:
-                feature_enabled = await db.get_chat_setting(chat_id, 'inactive_kick')
-                if not feature_enabled:
-                    continue
-
                 inactive_users = await db.get_inactive_users(
                     chat_id,
                     config.INACTIVE_DAYS_THRESHOLD
@@ -127,100 +260,11 @@ async def kick_inactive_members(
                 
                 for user_id in inactive_users:
                     try:
-                        # Note: Implement actual kick logic here using bot API
                         logger.info(f"Would kick inactive user {user_id} from chat {chat_id}")
+                        # Note: Implement actual kick logic here
                     except Exception as e:
                         logger.error(f"Failed to kick user {user_id} from chat {chat_id}: {e}")
             except Exception as e:
                 logger.error(f"Error processing chat {chat_id}: {e}")
     except Exception as e:
         logger.error(f"Error in kick_inactive_members: {e}")
-
-async def whitelist_user(
-    update: Update,
-    context: CallbackContext,
-    db: DatabaseManager,
-    **kwargs
-) -> None:
-    """Handle /whitelist command"""
-    if not await is_admin(update, context):
-        await update.message.reply_text('This command is only available to administrators.')
-        return
-        
-    if not context.args:
-        await update.message.reply_text('Usage: /whitelist <user_id>')
-        return
-        
-    try:
-        user_id = int(context.args[0])
-        chat_id = update.message.chat_id
-        await db.add_to_whitelist(user_id, chat_id)
-        await update.message.reply_text(f'User {user_id} has been whitelisted.')
-    except ValueError:
-        await update.message.reply_text('Invalid user ID.')
-    except Exception as e:
-        logger.error(f"Whitelist operation failed: {e}")
-        await update.message.reply_text('Failed to whitelist user.')
-
-async def toggle_feature(
-    update: Update,
-    context: CallbackContext,
-    db: DatabaseManager,
-    **kwargs
-) -> None:
-    """Handle /toggle command"""
-    if not await is_admin(update, context):
-        await update.message.reply_text('This command is only available to administrators.')
-        return
-        
-    if len(context.args) < 2:
-        await update.message.reply_text('Usage: /toggle <feature> <on/off>')
-        return
-        
-    feature, state = context.args[0], context.args[1].lower()
-    valid_features = ['inactive_kick', 'translation']
-    
-    if feature not in valid_features or state not in ['on', 'off']:
-        await update.message.reply_text(
-            f'Invalid feature or state. Valid features are: {", ".join(valid_features)}'
-        )
-        return
-        
-    try:
-        chat_id = update.message.chat_id
-        enabled = (state == 'on')
-        await db.set_chat_setting(chat_id, feature, enabled)
-        await update.message.reply_text(f'Feature {feature} has been turned {state}.')
-    except Exception as e:
-        logger.error(f"Feature toggle failed: {e}")
-        await update.message.reply_text('Failed to toggle feature.')
-
-async def configure_bot(
-    update: Update,
-    context: CallbackContext,
-    db: DatabaseManager,
-    **kwargs
-) -> None:
-    """Handle /configure command"""
-    if not await is_admin(update, context):
-        await update.message.reply_text('This command is only available to administrators.')
-        return
-        
-    if len(context.args) < 2:
-        await update.message.reply_text('Usage: /configure <feature> <on/off>')
-        return
-        
-    feature, state = context.args[0], context.args[1].lower()
-    valid_features = ['inactive_kick', 'translation']
-    
-    if feature not in valid_features or state not in ['on', 'off']:
-        await update.message.reply_text(
-            f'Invalid feature or state. Valid features are: {", ".join(valid_features)}'
-        )
-        return
-        
-    try:
-        chat_id = update.message.chat
-    except Exception as e:
-        logger.error(f"Configuration failed: {e}")
-        await update.message.reply_text('Failed to configure feature.')
