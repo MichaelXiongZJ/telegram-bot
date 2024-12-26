@@ -3,6 +3,7 @@
 Main bot application with detailed logging
 """
 import logging
+from logging.handlers import RotatingFileHandler
 from telegram import Update
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, 
@@ -19,7 +20,7 @@ from handlers import (
 logger = logging.getLogger(__name__)
 
 def setup_logging() -> None:
-    """Configure logging with detailed formatting"""
+    """Configure logging with detailed formatting and size limit"""
     # Create formatters
     detailed_formatter = logging.Formatter(
         '%(asctime)s - %(levelname)s - %(name)s - %(funcName)s - %(message)s'
@@ -32,8 +33,16 @@ def setup_logging() -> None:
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)  # Set to DEBUG for maximum detail
 
-    # File handler for all logs
-    file_handler = logging.FileHandler('bot_debug.log')
+    # File handler with rotation
+    log_file = 'bot_debug.log'
+    max_log_size = 5 * 1024 * 1024  # 5 MB
+    backup_count = 3  # Keep up to 3 old log files
+
+    file_handler = RotatingFileHandler(
+        log_file,
+        maxBytes=max_log_size,
+        backupCount=backup_count
+    )
     file_handler.setLevel(logging.INFO)
     file_handler.setFormatter(detailed_formatter)
     root_logger.addHandler(file_handler)
@@ -49,7 +58,7 @@ def setup_logging() -> None:
     logging.getLogger("apscheduler").setLevel(logging.WARNING)
     logging.getLogger("telegram").setLevel(logging.WARNING)
 
-    logger.info("Logging system initialized")
+    logger.info("Logging system initialized with size limit")
 
 async def post_init(application: Application) -> None:
     """Post initialization callback"""
