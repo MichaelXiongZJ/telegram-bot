@@ -8,3 +8,5 @@ urllib3
 pydantic-settings
 python-dotenv
 langdetect
+spacy
+# fasttext
