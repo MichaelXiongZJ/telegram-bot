@@ -29,12 +29,12 @@ def detect_language(text: str) -> str:
         english_words = sum(1 for token in doc_en if token.is_alpha and token.lang_ == 'en')
         chinese_chars = sum(1 for token in doc_zh if token.is_alpha)
 
-        if chinese_chars > english_words:
+        if english_words > chinese_chars:
             logger.debug("Detected language: Chinese")
-            return 'zh'
-        elif english_words > 0:
-            logger.debug("Detected language: English")
             return 'en'
+        elif chinese_chars > 0:
+            logger.debug("Detected language: English")
+            return 'zh'
         else:
             logger.debug("No clear language detected")
             return 'unknown'
@@ -257,11 +257,15 @@ async def toggle_command(
 async def print_database_command(
     update: Update, 
     context: CallbackContext, 
+    config: BotConfig,
     db: DatabaseManager, 
     **kwargs
 ) -> None:
     """Print all database entries when the command /print_db is issued."""
     logger.info("Received /print_db command")
+    if not await is_admin(update, context, config):
+        await update.message.reply_text('This command is only available to administrators.')
+        return
     try:
         entries = await db.get_all_entries()
         if not entries:
@@ -302,8 +306,16 @@ async def kick_inactive_members(
     except Exception as e:
         logger.error(f"Error in kick_inactive_members: {e}")
 
-async def import_users_command(update: Update, context: CallbackContext, db: DatabaseManager) -> None:
+async def import_users_command(
+    update: Update, 
+    context: CallbackContext, 
+    config: BotConfig,
+    db: DatabaseManager
+) -> None:
     """Handle /import_users [filename] command to import users from a file in csv directory."""
+    if not await is_admin(update, context, config):
+        await update.message.reply_text('This command is only available to administrators.')
+        return
     if len(context.args) != 1:
         await update.message.reply_text("Usage: /import_users [filename]")
         return
