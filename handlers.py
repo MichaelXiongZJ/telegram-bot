@@ -8,46 +8,13 @@ import logging
 from deep_translator import GoogleTranslator
 from database import DatabaseManager
 from config import BotConfig
-import spacy
 import os
+import re
 
 logger = logging.getLogger(__name__)
 
-# Initialize language detection
-logger.info("Loading spaCy language models...")
-nlp_en = spacy.load("en_core_web_sm")
-nlp_zh = spacy.load("zh_core_web_sm")
-
-def detect_language(text: str) -> str:
-    """Detect if the text is English or Chinese using spaCy"""
-    try:
-        # Process first 100 characters for efficiency
-        doc_en = nlp_en(text[:100])
-        doc_zh = nlp_zh(text[:100])
-
-        # Count words for each language
-        english_words = sum(1 for token in doc_en if token.is_alpha and token.lang_ == 'en')
-        chinese_chars = sum(1 for token in doc_zh if token.is_alpha)
-
-        if english_words > chinese_chars:
-            logger.debug("Detected language: Chinese")
-            return 'en'
-        elif chinese_chars > 0:
-            logger.debug("Detected language: English")
-            return 'zh'
-        else:
-            logger.debug("No clear language detected")
-            return 'unknown'
-            
-    except Exception as e:
-        logger.error(f"spaCy language detection error: {e}")
-        return 'unknown'
-
-logger.info("spaCy language detection initialized")
-
 # Initialize translator
 logger.info("Initializing translators...")
-translator = None
 try:
     translator_en_to_zh = GoogleTranslator(source='en', target='zh-CN')
     translator_zh_to_en = GoogleTranslator(source='zh-CN', target='en')
@@ -77,7 +44,27 @@ async def is_admin(update: Update, context: CallbackContext, config: BotConfig) 
         logger.error(f"Error checking admin status: {e}", exc_info=True)
         return False
 
+def count_chinese_chars(text: str) -> int:
+    return sum(1 for char in text if '\u4e00' <= char <= '\u9fff')  # Unicode range for CJK Unified Ideographs
+
+def detect_language(text: str) -> str:
+    # Regex to match Chinese characters (Unicode range for CJK Unified Ideographs)
+    chinese_char_pattern = re.compile(r'[\u4e00-\u9fff]')
+
+    # Count Chinese characters
+    chinese_chars = len(chinese_char_pattern.findall(text))
+    
+    # Calculate total length (excluding spaces)
+    total_chars = len(text.replace(" ", "",))
+
+    # If more than half the text is Chinese, classify it as Chinese
+    if chinese_chars / total_chars > 0.5:
+        return 'zh'
+    else:
+        return 'en'
+
 async def handle_message(
+        
     update: Update,
     context: CallbackContext,
     db: DatabaseManager,
@@ -96,19 +83,18 @@ async def handle_message(
             logger.debug("Translation is enabled")
             
             detected_lang = detect_language(text)
-            
+            logger.info(f"Detected language: {detected_lang}")
             if detected_lang == 'zh' and config.TRANSLATE_ZH_TO_EN:
-                logger.info("Chinese text detected, translating to English")
                 translated = translator_zh_to_en.translate(text)
-            elif detected_lang == 'en' and config.TRANSLATE_EN_TO_ZH and user_id == 7453544502: # Only translate for rabbit
-                logger.info("English text detected, translating to Chinese")
+            elif detected_lang == 'en' and config.TRANSLATE_EN_TO_ZH:
                 translated = translator_en_to_zh.translate(text)
             else:
                 translated = None
 
             if translated and translated != text:
                 await update.message.reply_text(translated)
-                logger.info(f"Translated message: {translated}")
+
+            logger.info(f"Translated message: {translated}")
         
         # Update activity time
         logger.debug(f"Updating activity time for user {user_id}")
