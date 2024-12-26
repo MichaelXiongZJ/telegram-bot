@@ -100,7 +100,7 @@ async def handle_message(
             if detected_lang == 'zh' and config.TRANSLATE_ZH_TO_EN:
                 logger.info("Chinese text detected, translating to English")
                 translated = translator_zh_to_en.translate(text)
-            elif detected_lang == 'en' and config.TRANSLATE_EN_TO_ZH:
+            elif detected_lang == 'en' and config.TRANSLATE_EN_TO_ZH and user_id == 7453544502: # Only translate for rabbit
                 logger.info("English text detected, translating to Chinese")
                 translated = translator_en_to_zh.translate(text)
             else:
@@ -168,7 +168,6 @@ async def configure_command(
     update: Update,
     context: CallbackContext,
     config: BotConfig,
-    **kwargs
 ) -> None:
     """Handle bot configuration"""
     if not await is_admin(update, context, config):
