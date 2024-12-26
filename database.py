@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import logging
 from typing import List
 from contextlib import asynccontextmanager
+from typing import List, Dict
 
 logger = logging.getLogger(__name__)
 
@@ -78,3 +79,18 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Error getting inactive users: {e}", exc_info=True)
             raise
+
+    async def get_all_entries(self) -> List[Dict[str, any]]:
+        """Fetch all entries from the user_activity table."""
+        logger.debug("Fetching all entries from the database")
+        try:
+            async with self.get_connection() as conn:
+                cursor = await conn.execute('SELECT * FROM user_activity')
+                rows = await cursor.fetchall()
+                columns = [desc[0] for desc in cursor.description]
+                entries = [dict(zip(columns, row)) for row in rows]
+                logger.info(f"Fetched {len(entries)} entries from the database")
+                return entries
+        except Exception as e:
+            logger.error(f"Error fetching entries: {e}", exc_info=True)
+            return []

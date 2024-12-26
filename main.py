@@ -14,7 +14,7 @@ from config import BotConfig
 from database import DatabaseManager
 from handlers import (
     help_command, configure_command, handle_message,
-    toggle_command, kick_inactive_members, handle_new_members
+    toggle_command, kick_inactive_members, handle_new_members, print_database_command
 )
 
 logger = logging.getLogger(__name__)
@@ -135,12 +135,14 @@ def main() -> None:
             lambda update, context: configure_command(update, context, **get_handler_deps(context))))
         application.add_handler(CommandHandler("toggle",
             lambda update, context: toggle_command(update, context, **get_handler_deps(context))))
-            
+        application.add_handler(CommandHandler("print_db", 
+            lambda update, context: print_database_command(update, context, **get_handler_deps(context))))
+
         logger.debug("Adding message handlers")
         application.add_handler(MessageHandler(
             filters.TEXT & ~filters.COMMAND,
             lambda update, context: handle_message(update, context, **get_handler_deps(context))))
-            
+        
         # Add new member handler
         logger.debug("Adding new member handler")
         application.add_handler(MessageHandler(

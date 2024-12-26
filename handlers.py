@@ -252,6 +252,28 @@ async def toggle_command(
     else:
         await update.message.reply_text('Invalid feature')
 
+async def print_database_command(
+    update: Update, 
+    context: CallbackContext, 
+    db: DatabaseManager, 
+    **kwargs
+) -> None:
+    """Print all database entries when the command /print_db is issued."""
+    logger.info("Received /print_db command")
+    try:
+        entries = await db.get_all_entries()
+        if not entries:
+            if update.effective_message:
+                await update.effective_message.reply_text("No entries in the database.")
+        else:
+            entry_text = '\n'.join([f"User {e['user_id']} in Chat {e['chat_id']} - Last Active: {e['last_active']}" for e in entries])
+            if update.effective_message:
+                await update.effective_message.reply_text(f"*Database Entries:*\n{entry_text}", parse_mode='Markdown')
+    except Exception as e:
+        logger.error(f"Error processing /print_db: {e}", exc_info=True)
+        if update.effective_message:
+            await update.effective_message.reply_text("Failed to fetch database entries.")
+
 async def kick_inactive_members(
     db: DatabaseManager,
     config: BotConfig,
