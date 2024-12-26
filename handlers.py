@@ -180,7 +180,7 @@ async def configure_command(
             else:
                 await update.message.reply_text('Rate limit must be between 1 and 100')
         elif setting == 'rate_window':
-            if 11 <= value <= 3600:  # Between 1 seconds and 1 hour
+            if 1 <= value <= 3600:  # Between 1 seconds and 1 hour
                 config.RATE_LIMIT_WINDOW = value
                 await update.message.reply_text(f'Rate limit window set to {value} seconds')
             else:
