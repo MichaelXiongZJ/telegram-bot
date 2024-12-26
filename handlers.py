@@ -9,6 +9,7 @@ from deep_translator import GoogleTranslator
 from database import DatabaseManager
 from config import BotConfig
 import spacy
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -131,6 +132,7 @@ async def help_command(
         "/help - Show this help message\n"
         "/configure <setting> <value> - Configure bot settings (admin only)\n"
         "/toggle <feature> - Toggle features on/off (admin only)\n"
+        "/import_users - Upload a CSV to import group members into the database (admin only)\n"
         
         "*Current Settings:*\n"
         f"• Rate limit: {config.RATE_LIMIT_MESSAGES} messages\n"
@@ -299,3 +301,25 @@ async def kick_inactive_members(
                 logger.error(f"Failed to kick user {user_id}: {e}")
     except Exception as e:
         logger.error(f"Error in kick_inactive_members: {e}")
+
+async def import_users_command(update: Update, context: CallbackContext, db: DatabaseManager) -> None:
+    """Handle /import_users [filename] command to import users from a file in csv directory."""
+    if len(context.args) != 1:
+        await update.message.reply_text("Usage: /import_users [filename]")
+        return
+
+    filename = context.args[0]
+    file_path = os.path.join('csv', filename)
+
+    if not os.path.exists(file_path):
+        await update.message.reply_text(f"File {filename} not found in csv directory.")
+        return
+
+    logger.info(f"Loading users from {file_path}")
+    try:
+        await db.import_users_from_file(file_path)
+        await update.message.reply_text(f"Users imported successfully from {filename}.")
+    except Exception as e:
+        logger.error(f"Error during user import: {e}", exc_info=True)
+        await update.message.reply_text(f"Failed to import users from {filename}.")
+

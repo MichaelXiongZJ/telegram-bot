@@ -14,7 +14,8 @@ from config import BotConfig
 from database import DatabaseManager
 from handlers import (
     help_command, configure_command, handle_message,
-    toggle_command, kick_inactive_members, handle_new_members, print_database_command
+    toggle_command, kick_inactive_members, handle_new_members, 
+    print_database_command, import_users_command
 )
 
 logger = logging.getLogger(__name__)
@@ -43,7 +44,7 @@ def setup_logging() -> None:
         maxBytes=max_log_size,
         backupCount=backup_count
     )
-    file_handler.setLevel(logging.INFO)
+    file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(detailed_formatter)
     root_logger.addHandler(file_handler)
 
@@ -60,33 +61,23 @@ def setup_logging() -> None:
 
     logger.info("Logging system initialized with size limit")
 
-async def post_init(application: Application) -> None:
-    """Post initialization callback"""
+async def post_init(application: Application, db: DatabaseManager, config: BotConfig) -> None:
     logger.info("Running post-init setup")
     try:
-        # Store scheduler in application context
-        logger.debug("Setting up scheduler")
         application.bot_data['scheduler'] = AsyncIOScheduler()
-        
-        # Add jobs
-        logger.debug("Adding scheduler jobs")
         application.bot_data['scheduler'].add_job(
             lambda: kick_inactive_members(
-                application.bot_data['db'],
-                application.bot_data['config'],
+                db,
+                config,
                 application
             ),
             'interval',
             days=1
         )
-        
-        # Start scheduler
-        logger.debug("Starting scheduler")
         application.bot_data['scheduler'].start()
         logger.info("Scheduler started successfully")
     except Exception as e:
         logger.error(f"Error in post_init: {e}", exc_info=True)
-        raise
 
 def main() -> None:
     """Start the bot with detailed logging"""
@@ -110,7 +101,7 @@ def main() -> None:
         application = (
             Application.builder()
             .token(config.TOKEN)
-            .post_init(post_init)
+            .post_init(lambda app: post_init(app, db, config))
             .build()
         )
         logger.info("Application built")
@@ -137,6 +128,8 @@ def main() -> None:
             lambda update, context: toggle_command(update, context, **get_handler_deps(context))))
         application.add_handler(CommandHandler("print_db", 
             lambda update, context: print_database_command(update, context, **get_handler_deps(context))))
+        application.add_handler(CommandHandler("import_users", 
+            lambda update, context: import_users_command(update, context, db)))
 
         logger.debug("Adding message handlers")
         application.add_handler(MessageHandler(

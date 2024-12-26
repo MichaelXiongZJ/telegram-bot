@@ -14,8 +14,8 @@ class BotConfig(BaseSettings):
     
     # User Management (configurable via /configure command)
     RATE_LIMIT_MESSAGES: int = 5
-    RATE_LIMIT_WINDOW: int = 60  # seconds
-    INACTIVE_DAYS_THRESHOLD: int = 30
+    RATE_LIMIT_WINDOW: int = 10  # seconds
+    INACTIVE_DAYS_THRESHOLD: int = 60
     
     # Features
     TRANSLATE_EN_TO_ZH: bool = True  # English to Chinese toggle

@@ -8,6 +8,7 @@ import logging
 from typing import List
 from contextlib import asynccontextmanager
 from typing import List, Dict
+import csv
 
 logger = logging.getLogger(__name__)
 
@@ -94,3 +95,34 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Error fetching entries: {e}", exc_info=True)
             return []
+        
+    async def add_missing_users(self, chat_id: int, members: List[int]) -> None:
+        """Add missing users to the database."""
+        logger.info(f"Adding missing users to chat {chat_id}")
+        try:
+            async with self.get_connection() as conn:
+                for user_id in members:
+                    await conn.execute('''
+                        INSERT OR IGNORE INTO user_activity (user_id, chat_id, last_active)
+                        VALUES (?, ?, ?)
+                    ''', (user_id, chat_id, datetime.now()))
+                await conn.commit()
+                logger.info("Missing users added successfully")
+        except Exception as e:
+            logger.error(f"Error adding missing users: {e}", exc_info=True)
+            
+    async def import_users_from_file(self, file_path: str) -> None:
+        """Import user IDs and chat IDs from a CSV file and add them to the database."""
+        logger.info(f"Importing users from file {file_path}")
+        try:
+            with open(file_path, newline='') as csvfile:
+                reader = csv.DictReader(csvfile)
+                if 'chat_id' not in reader.fieldnames or 'user_id' not in reader.fieldnames:
+                    raise ValueError("CSV file must contain 'chat_id' and 'user_id' columns.")
+
+                members = [(int(row['chat_id']), int(row['user_id'])) for row in reader if row['chat_id'].isdigit() and row['user_id'].isdigit()]
+                for chat_id, user_id in members:
+                    await self.add_missing_users(chat_id, [user_id])
+                logger.info(f"Imported {len(members)} users successfully from {file_path}")
+        except Exception as e:
+            logger.error(f"Error importing users from file: {e}", exc_info=True)
