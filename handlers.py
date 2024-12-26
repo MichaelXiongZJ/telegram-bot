@@ -126,14 +126,6 @@ async def help_command(
 ) -> None:
     """Show help message"""
     help_text = (
-        "*Kuma's Group Management Bot*\n\n"
-        
-        "*Commands:*\n"
-        "/help - Show this help message\n"
-        "/configure <setting> <value> - Configure bot settings (admin only)\n"
-        "/toggle <feature> - Toggle features on/off (admin only)\n"
-        "/import_users - Upload a CSV to import group members into the database (admin only)\n"
-        
         "*Current Settings:*\n"
         f"• Rate limit: {config.RATE_LIMIT_MESSAGES} messages\n"
         f"• Time window: {config.RATE_LIMIT_WINDOW} seconds\n"
