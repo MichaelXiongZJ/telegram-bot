@@ -334,7 +334,7 @@ async def print_database_command(
                 f"• Total Users: {stats['total_users']}\n"
                 f"• Total Messages: {stats['total_messages']}\n"
                 f"• Average Messages/User: {stats['avg_messages_per_user']:.1f}\n"
-                "\n*User Activity:*\n"
+                "\n*User Activity blow:*\n"
             )
             
             await update.message.reply_text(config_text, parse_mode='Markdown')

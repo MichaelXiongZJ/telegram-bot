@@ -1,1 +1,0 @@
-this directory is for uploading the csv files of member data
