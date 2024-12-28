@@ -26,7 +26,7 @@ class BotConfig(BaseSettings):
     BOT_OWNER_ID: int
     
     # Default chat settings
-    DEFAULT_RATE_LIMIT: int = 1
+    DEFAULT_RATE_LIMIT: int = 2
     DEFAULT_RATE_WINDOW: int = 1
     DEFAULT_INACTIVE_DAYS: int = 30
     

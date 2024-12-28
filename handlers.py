@@ -109,20 +109,22 @@ async def help_command(
         
         # Basic settings info for all users
         help_text = (
-            "*Settings*\n"
-            f"Rate limit: {chat_config['rate_limit_messages']} messages per {chat_config['rate_limit_window']}s\n"
-            f"Inactive days threshold: {chat_config['inactive_days_threshold']} days\n"
-            f"*Translations:*\n"
-            "/toggle\\_translation\\_en\\_to\\_zh - Toggle EN→ZH translation\n"
-            "/toggle\\_translation\\_zh\\_to\\_en - Toggle ZH→EN translation\n"
-            "Current Setting: "
-            f"EN→ZH {'on' if chat_config['translate_en_to_zh'] else 'off'}, "
-            f"ZH→EN {'on' if chat_config['translate_zh_to_en'] else 'off'}\n"
+            f"*Translations (翻译设置):*\n"
+            "Toggle EN→ZH translation (开关英中翻译):\n"
+            "\t\t/toggle\\_translation\\_en\\_to\\_zh\n"
+            "Toggle ZH→EN translation (开关中英翻译):\n"
+            "\t\t/toggle\\_translation\\_zh\\_to\\_en\n"
+            "Current Setting:\n"
+            f"EN→ZH (英中翻译) {'✅' if chat_config['translate_en_to_zh'] else '❌'}, "
+            f"ZH→EN (中英翻译) {'✅' if chat_config['translate_zh_to_en'] else '❌'}\n"
         )
 
         # Add admin commands if user is admin
         if await is_admin(update, context, config):
             help_text += (
+                "*Settings*\n"
+                f"Rate limit: {chat_config['rate_limit_messages']} messages per {chat_config['rate_limit_window']}s\n"
+                f"Inactive days threshold: {chat_config['inactive_days_threshold']} days\n"
                 "*Admin Commands*\n"
                 "/configure rate\\_limit <number> - Set message rate limit\n"
                 "/configure rate\\_window <seconds> - Set time window\n"
@@ -224,7 +226,7 @@ async def toggle_translation_en_to_zh(
         current_config['translate_en_to_zh'] = new_state
         await config_manager.update_config(chat_id, current_config)
         state_str = 'enabled' if new_state else 'disabled'
-        await update.message.reply_text(f'English to Chinese translation has been {state_str}')
+        await update.message.reply_text(f'EN→ZH (英中翻译): {'✅' if state_str == 'enabled' else '❌'}')
     except Exception as e:
         logger.error(f"Error toggling EN→ZH translation: {e}")
         await update.message.reply_text("Failed to toggle translation setting")
@@ -243,7 +245,7 @@ async def toggle_translation_zh_to_en(
         current_config['translate_zh_to_en'] = new_state
         await config_manager.update_config(chat_id, current_config)
         state_str = 'enabled' if new_state else 'disabled'
-        await update.message.reply_text(f'Chinese to English translation has been {state_str}')
+        await update.message.reply_text(f'ZH→EN (中英翻译): {'✅' if state_str == 'enabled' else '❌'}')
     except Exception as e:
         logger.error(f"Error toggling ZH→EN translation: {e}")
         await update.message.reply_text("Failed to toggle translation setting")
