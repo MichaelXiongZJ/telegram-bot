@@ -95,6 +95,13 @@ async def handle_message(
     except Exception as e:
         logger.error(f"Error in handle_message: {e}", exc_info=True)
 
+async def delete_command_message(update: Update) -> None:
+    """Delete the command message if possible"""
+    try:
+        await update.message.delete()
+    except Exception as e:
+        logger.warning(f"Failed to delete command message: {e}")
+
 async def help_command(
     update: Update,
     context: CallbackContext,
@@ -133,7 +140,7 @@ async def help_command(
             )
 
         await update.message.reply_text(help_text, parse_mode='Markdown')
-
+        await delete_command_message(update)
     except Exception as e:
         logger.error(f"Error in help command: {e}")
         await update.message.reply_text("Error showing help. Please try again later.")
@@ -209,6 +216,7 @@ async def configure_command(
                 await update.message.reply_text('Inactive days must be between 1 and 365')
         else:
             await update.message.reply_text('Invalid setting')
+        await delete_command_message(update)
     except ValueError:
         await update.message.reply_text('Value must be a number')
 
@@ -229,6 +237,7 @@ async def toggle_translation_en_to_zh(
         CHECK_MARK = '✅' 
         X_MARK = '❌'
         await update.message.reply_text(f'EN→ZH (英中翻译): {CHECK_MARK if state_str == "enabled" else X_MARK}')
+        await delete_command_message(update)
     except Exception as e:
         logger.error(f"Error toggling EN→ZH translation: {e}")
         await update.message.reply_text("Failed to toggle translation setting")
@@ -250,6 +259,7 @@ async def toggle_translation_zh_to_en(
         CHECK_MARK = '✅'
         X_MARK = '❌'
         await update.message.reply_text(f'ZH→EN (中英翻译): {CHECK_MARK if state_str == "enabled" else X_MARK}')
+        await delete_command_message(update)
     except Exception as e:
         logger.error(f"Error toggling ZH→EN translation: {e}")
         await update.message.reply_text("Failed to toggle translation setting")
@@ -368,7 +378,7 @@ async def print_database_command(
             
             if user_text:
                 await update.message.reply_text(user_text, parse_mode='Markdown')
-                
+        await delete_command_message(update)
     except Exception as e:
         logger.error(f"Error processing print_db: {e}", exc_info=True)
         await update.message.reply_text("An error occurred while fetching database information.")
@@ -416,7 +426,7 @@ async def import_users_command(
                 response += f"\n...and {len(stats['error_details']) - 5} more errors"
                 
         await update.message.reply_text(response)
-        
+        await delete_command_message(update)
     except Exception as e:
         logger.error(f"Error during user import: {e}", exc_info=True)
         await update.message.reply_text(f"Failed to import users from {filename}: {str(e)}")
