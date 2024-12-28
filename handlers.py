@@ -243,16 +243,14 @@ async def help_command(
         
         # Base help text
         help_text = (
-            "*Translation Bot Help*\n\n"
-            "*Translation Settings:*\n"
+            "*Translation Settings (翻译设置):*\n"
             "• EN→ZH Translation (英中翻译):\n"
-            "  `/toggle_translation_en_to_zh`\n"
+            "\t\t/toggle\\_translation\\_en\\_to\\_zh\n"
             "• ZH→EN Translation (中英翻译):\n"
-            "  `/toggle_translation_zh_to_en`\n\n"
+            "\t\t/toggle\\_translation\\_zh\\_to\\_en\n"
             "*Current Settings:*\n"
-            f"• EN→ZH: {'✅' if chat_config['translate_en_to_zh'] else '❌'}\n"
+            f"• EN→ZH: {'✅' if chat_config['translate_en_to_zh'] else '❌'}"
             f"• ZH→EN: {'✅' if chat_config['translate_zh_to_en'] else '❌'}\n"
-            f"• Rate Limit: {chat_config['rate_limit_messages']} msgs per {chat_config['rate_limit_window']}s\n\n"
         )
 
         # Add admin commands if user is admin
