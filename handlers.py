@@ -65,8 +65,9 @@ async def handle_message(
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
     text = update.message.text
-    
-    logger.info(f"Handling message from user {user_id} in chat {chat_id}")
+    sender_name = update.effective_user.first_name or update.effective_user.username
+
+    logger.info(f"Handling message from user {user_id} ({sender_name}) in chat {chat_id}")
 
     try:
         # Get chat-specific config
@@ -86,8 +87,9 @@ async def handle_message(
                 translated = None
 
             if translated and translated != text:
-                await update.message.reply_text(translated)
-                logger.info(f"Translated message sent: {translated}")
+                reply_text = f"{sender_name}: {translated}"
+                await update.message.reply_text(reply_text)
+                logger.info(f"Translated message sent from {sender_name}: {translated}")
         
         # Update activity time
         logger.debug(f"Updating activity time for user {user_id}")
