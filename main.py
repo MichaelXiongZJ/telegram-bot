@@ -3,6 +3,8 @@
 Main bot application with detailed logging
 """
 import logging
+import os
+from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from telegram import Update
 from telegram.ext import (
@@ -24,6 +26,14 @@ logger = logging.getLogger(__name__)
 
 def setup_logging() -> None:
     """Configure logging with detailed formatting and size limit"""
+    # Create logs directory if it doesn't exist
+    logs_dir = 'logs'
+    os.makedirs(logs_dir, exist_ok=True)
+
+    # Generate log file name with timestamp
+    timestamp = datetime.now().strftime("%Y-%m-%d")
+    log_file = os.path.join(logs_dir, f'bot_debug_{timestamp}.log')
+
     # Create formatters
     detailed_formatter = logging.Formatter(
         '%(asctime)s - %(levelname)s - %(name)s - %(funcName)s - %(message)s'
@@ -37,7 +47,6 @@ def setup_logging() -> None:
     root_logger.setLevel(logging.DEBUG)
 
     # File handler with rotation
-    log_file = 'bot_debug.log'
     max_log_size = 5 * 1024 * 1024  # 5 MB
     backup_count = 3
 
