@@ -8,6 +8,7 @@ import logging
 from deep_translator import GoogleTranslator
 import os
 import re
+import asyncio
 from typing import List, Dict
 from config import BotConfig
 from database import DatabaseManager
@@ -95,9 +96,18 @@ async def handle_message(
     except Exception as e:
         logger.error(f"Error in handle_message: {e}", exc_info=True)
 
-async def delete_command_message(update: Update) -> None:
-    """Delete the command message if possible"""
+async def delete_message_after_delay(message, delay_seconds: int = 15):
+    """Delete a message after specified delay"""
     try:
+        await asyncio.sleep(delay_seconds)
+        await message.delete()
+    except Exception as e:
+        logger.warning(f"Failed to delete message: {e}")
+
+async def delete_command_message(update: Update) -> None:
+    """Delete the command message after a short delay"""
+    try:
+        await asyncio.sleep(5)
         await update.message.delete()
     except Exception as e:
         logger.warning(f"Failed to delete command message: {e}")
@@ -110,11 +120,13 @@ async def help_command(
     **kwargs
 ) -> None:
     """Show help message with available commands"""
+    # Delete command message immediately
+    asyncio.create_task(delete_command_message(update))
+    
     chat_id = update.effective_chat.id
     try:
         chat_config = await config_manager.get_config(chat_id)
         
-        # Basic settings info for all users
         help_text = (
             f"*Translations (翻译设置):*\n"
             "Toggle EN→ZH translation (开关英中翻译):\n"
@@ -126,7 +138,6 @@ async def help_command(
             f"ZH→EN (中英翻译) {'✅' if chat_config['translate_zh_to_en'] else '❌'}\n"
         )
 
-        # Add admin commands if user is admin
         if await is_admin(update, context, config):
             help_text += (
                 "*Settings*\n"
@@ -139,11 +150,12 @@ async def help_command(
                 "/print\\_db - Print the member database."
             )
 
-        await update.message.reply_text(help_text, parse_mode='Markdown')
-        await delete_command_message(update)
+        response = await update.message.reply_text(help_text, parse_mode='Markdown')
+        asyncio.create_task(delete_message_after_delay(response))
     except Exception as e:
         logger.error(f"Error in help command: {e}")
-        await update.message.reply_text("Error showing help. Please try again later.")
+        response = await update.message.reply_text("Error showing help. Please try again later.")
+        asyncio.create_task(delete_message_after_delay(response))
 
 async def handle_new_members(
     update: Update,
@@ -172,20 +184,25 @@ async def configure_command(
     **kwargs
 ) -> None:
     """Handle bot configuration"""
+    # Delete command message immediately
+    asyncio.create_task(delete_command_message(update))
+    
     chat_id = update.effective_chat.id
     
     if not await is_admin(update, context, config):
-        await update.message.reply_text('This command is only available to administrators.')
+        response = await update.message.reply_text('This command is only available to administrators.')
+        asyncio.create_task(delete_message_after_delay(response))
         return
 
     if len(context.args) != 2:
-        await update.message.reply_text(
+        response = await update.message.reply_text(
             'Usage: /configure <setting> <value>\n'
             'Available commands:\n'
             '• rate_limit - Messages per time window\n'
             '• rate_window - Time window in seconds\n'
             '• inactive_days - Days before user is considered inactive'
         )
+        asyncio.create_task(delete_message_after_delay(response))
         return
 
     setting, value = context.args[0].lower(), context.args[1]
@@ -197,28 +214,33 @@ async def configure_command(
             if 1 <= value <= 100:
                 current_config['rate_limit_messages'] = value
                 await config_manager.update_config(chat_id, current_config)
-                await update.message.reply_text(f'Rate limit set to {value} messages per {current_config["rate_limit_window"]} seconds')
+                response = await update.message.reply_text(
+                    f'Rate limit set to {value} messages per {current_config["rate_limit_window"]} seconds'
+                )
             else:
-                await update.message.reply_text('Rate limit must be between 1 and 100')
+                response = await update.message.reply_text('Rate limit must be between 1 and 100')
         elif setting == 'rate_window':
             if 1 <= value <= 3600:
                 current_config['rate_limit_window'] = value
                 await config_manager.update_config(chat_id, current_config)
-                await update.message.reply_text(f'Rate limit window set to {value} seconds')
+                response = await update.message.reply_text(f'Rate limit window set to {value} seconds')
             else:
-                await update.message.reply_text('Rate window must be between 10 and 3600 seconds')
+                response = await update.message.reply_text('Rate window must be between 10 and 3600 seconds')
         elif setting == 'inactive_days':
             if 1 <= value <= 365:
                 current_config['inactive_days_threshold'] = value
                 await config_manager.update_config(chat_id, current_config)
-                await update.message.reply_text(f'Inactive threshold set to {value} days')
+                response = await update.message.reply_text(f'Inactive threshold set to {value} days')
             else:
-                await update.message.reply_text('Inactive days must be between 1 and 365')
+                response = await update.message.reply_text('Inactive days must be between 1 and 365')
         else:
-            await update.message.reply_text('Invalid setting')
-        await delete_command_message(update)
+            response = await update.message.reply_text('Invalid setting')
+            
+        asyncio.create_task(delete_message_after_delay(response))
+        
     except ValueError:
-        await update.message.reply_text('Value must be a number')
+        response = await update.message.reply_text('Value must be a number')
+        asyncio.create_task(delete_message_after_delay(response))
 
 async def toggle_translation_en_to_zh(
     update: Update,
@@ -227,6 +249,7 @@ async def toggle_translation_en_to_zh(
     **kwargs
 ) -> None:
     """Toggle English to Chinese translation"""
+    asyncio.create_task(delete_command_message(update))
     chat_id = update.effective_chat.id
     try:
         current_config = await config_manager.get_config(chat_id)
@@ -236,11 +259,12 @@ async def toggle_translation_en_to_zh(
         state_str = 'enabled' if new_state else 'disabled'
         CHECK_MARK = '✅' 
         X_MARK = '❌'
-        await update.message.reply_text(f'EN→ZH (英中翻译): {CHECK_MARK if state_str == "enabled" else X_MARK}')
-        await delete_command_message(update)
+        response = await update.message.reply_text(f'EN→ZH (英中翻译): {CHECK_MARK if state_str == "enabled" else X_MARK}')
+        asyncio.create_task(delete_message_after_delay(response))
     except Exception as e:
         logger.error(f"Error toggling EN→ZH translation: {e}")
-        await update.message.reply_text("Failed to toggle translation setting")
+        response = await update.message.reply_text("Failed to toggle translation setting")
+        asyncio.create_task(delete_message_after_delay(response))
 
 async def toggle_translation_zh_to_en(
     update: Update,
@@ -249,6 +273,7 @@ async def toggle_translation_zh_to_en(
     **kwargs
 ) -> None:
     """Toggle Chinese to English translation"""
+    asyncio.create_task(delete_command_message(update))
     chat_id = update.effective_chat.id
     try:
         current_config = await config_manager.get_config(chat_id)
@@ -258,11 +283,12 @@ async def toggle_translation_zh_to_en(
         state_str = 'enabled' if new_state else 'disabled'
         CHECK_MARK = '✅'
         X_MARK = '❌'
-        await update.message.reply_text(f'ZH→EN (中英翻译): {CHECK_MARK if state_str == "enabled" else X_MARK}')
-        await delete_command_message(update)
+        response = await update.message.reply_text(f'ZH→EN (中英翻译): {CHECK_MARK if state_str == "enabled" else X_MARK}')
+        asyncio.create_task(delete_message_after_delay(response))
     except Exception as e:
         logger.error(f"Error toggling ZH→EN translation: {e}")
-        await update.message.reply_text("Failed to toggle translation setting")
+        response = await update.message.reply_text("Failed to toggle translation setting")
+        asyncio.create_task(delete_message_after_delay(response))
 
 async def print_database_command(
     update: Update, 
@@ -273,13 +299,14 @@ async def print_database_command(
     **kwargs
 ) -> None:
     """Print database information based on context and user permissions"""
+    asyncio.create_task(delete_command_message(update))
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
     chat_type = update.effective_chat.type
     
     if not ((user_id == config.BOT_OWNER_ID and chat_type == 'private') or await is_admin(update, context, config)):
-        await update.message.reply_text('This command is only available to administrators.')
-        await delete_command_message(update)
+        response = await update.message.reply_text('This command is only available to administrators.')
+        asyncio.create_task(delete_message_after_delay(response))
         return
 
     try:
@@ -288,8 +315,8 @@ async def print_database_command(
             chat_ids = await db.get_all_chat_ids()
             
             if not chat_ids:
-                await update.message.reply_text("No chat data found in database.")
-                await delete_command_message(update)
+                response = await update.message.reply_text("No chat data found in database.")
+                asyncio.create_task(delete_message_after_delay(response))
                 return
                 
             for chat_id in chat_ids:
@@ -330,11 +357,13 @@ async def print_database_command(
                             logger.warning(f"Could not get member info for {user['user_id']}: {e}")
                             message += f"• User {user['user_id']} (not found)\n"
                     
-                    await update.message.reply_text(message)
+                    response = await update.message.reply_text(message)
+                    asyncio.create_task(delete_message_after_delay(response))
                     
                 except Exception as e:
                     logger.error(f"Error processing chat {chat_id}: {e}")
-                    await update.message.reply_text(f"Error processing chat {chat_id}")
+                    response = await update.message.reply_text(f"Error processing chat {chat_id}")
+                    asyncio.create_task(delete_message_after_delay(response))
         
         # When admin uses command in group chat
         else:
@@ -370,7 +399,8 @@ async def print_database_command(
                     user_line = f"• {username} (msgs: {user['messages_count']}, last: {timestamp})\n"
                     
                     if len(user_text) + len(user_line) > 3000:
-                        await update.message.reply_text(user_text)
+                        response = await update.message.reply_text(user_text)
+                        asyncio.create_task(delete_message_after_delay(response))
                         user_text = user_line
                     else:
                         user_text += user_line
@@ -380,14 +410,13 @@ async def print_database_command(
                     continue
             
             if user_text:
-                await update.message.reply_text(user_text)
-                
-        await delete_command_message(update)
-                
+                response = await update.message.reply_text(user_text)
+                asyncio.create_task(delete_message_after_delay(response))
+
     except Exception as e:
         logger.error(f"Error processing print_db: {e}", exc_info=True)
-        await update.message.reply_text("An error occurred while fetching database information.")
-        await delete_command_message(update)
+        response = await update.message.reply_text("An error occurred while fetching database information.")
+        asyncio.create_task(delete_message_after_delay(response))
 
 async def import_users_command(
     update: Update, 
@@ -397,19 +426,23 @@ async def import_users_command(
     **kwargs
 ) -> None:
     """Handle /import_users command"""
+    asyncio.create_task(delete_command_message(update))
     if not await is_admin(update, context, config):
-        await update.message.reply_text('This command is only available to administrators.')
+        response = await update.message.reply_text('This command is only available to administrators.')
+        asyncio.create_task(delete_message_after_delay(response))
         return
         
     if len(context.args) != 1:
-        await update.message.reply_text("Usage: /import_users [filename]")
+        response = await update.message.reply_text("Usage: /import_users [filename]")
+        asyncio.create_task(delete_message_after_delay(response))
         return
 
     filename = context.args[0]
     file_path = os.path.join('csv', filename)
 
     if not os.path.exists(file_path):
-        await update.message.reply_text(f"File {filename} not found in csv directory.")
+        response = await update.message.reply_text(f"File {filename} not found in csv directory.")
+        asyncio.create_task(delete_message_after_delay(response))
         return
 
     try:
@@ -431,11 +464,11 @@ async def import_users_command(
             if len(stats['error_details']) > 5:
                 response += f"\n...and {len(stats['error_details']) - 5} more errors"
                 
-        await update.message.reply_text(response)
-        await delete_command_message(update)
+        response = await update.message.reply_text(response)
+        asyncio.create_task(delete_message_after_delay(response))
     except Exception as e:
         logger.error(f"Error during user import: {e}", exc_info=True)
-        await update.message.reply_text(f"Failed to import users from {filename}: {str(e)}")
+        response = await update.message.reply_text(f"Failed to import users from {filename}: {str(e)}")
 
 async def kick_inactive_members(
     db,
