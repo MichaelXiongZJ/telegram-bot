@@ -105,6 +105,30 @@ class DatabaseManager:
             'last_activity': row[3] or datetime.now()
         }
 
+    async def get_all_chat_ids(self) -> List[int]:
+        """Get all chat IDs from the database"""
+        conn = await self._get_connection()
+        cursor = await conn.execute('''
+            SELECT name FROM sqlite_master 
+            WHERE type='table' AND name LIKE 'chat_%' OR name LIKE 'chat_n%'
+        ''')
+        tables = await cursor.fetchall()
+        
+        chat_ids = []
+        for (table_name,) in tables:
+            try:
+                if table_name.startswith('chat_n'):
+                    # Handle negative chat IDs
+                    chat_id = -int(table_name[6:])
+                else:
+                    # Handle positive chat IDs
+                    chat_id = int(table_name[5:])
+                chat_ids.append(chat_id)
+            except ValueError:
+                continue
+                
+        return chat_ids
+
     async def get_chat_user_activity(self, chat_id: int, limit: int = 50) -> List[Dict]:
         """Get user activity data for a specific chat"""
         conn = await self._get_connection()

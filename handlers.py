@@ -277,111 +277,117 @@ async def print_database_command(
     chat_id = update.effective_chat.id
     chat_type = update.effective_chat.type
     
-    # Check if it's the owner in DM
-    is_owner = user_id == config.BOT_OWNER_ID
-    is_private = chat_type == 'private'
-    
-    if not (is_owner and is_private) and not await is_admin(update, context, config):
+    if not ((user_id == config.BOT_OWNER_ID and chat_type == 'private') or await is_admin(update, context, config)):
         await update.message.reply_text('This command is only available to administrators.')
+        await delete_command_message(update)
         return
 
     try:
-        if is_owner and is_private:
-            # Owner in DM - show all chats
+        # When bot owner uses command in private chat
+        if user_id == config.BOT_OWNER_ID and chat_type == 'private':
             chat_ids = await db.get_all_chat_ids()
+            
+            if not chat_ids:
+                await update.message.reply_text("No chat data found in database.")
+                await delete_command_message(update)
+                return
+                
             for chat_id in chat_ids:
                 try:
                     chat = await context.bot.get_chat(chat_id)
                     chat_title = chat.title or f"Chat {chat_id}"
                     
-                    # Get chat config
                     chat_config = await config_manager.get_config(chat_id)
                     stats = await db.get_chat_statistics(chat_id)
-                    users = await db.get_chat_user_activity(chat_id, limit=10)  # Top 10 active users
+                    users = await db.get_chat_user_activity(chat_id, limit=10)
                     
-                    # Format message for each chat
                     message = (
-                        f"\n*{chat_title}*\n"
-                        f"Chat ID: `{chat_id}`\n"
-                        "\n*Configuration:*\n"
+                        f"Chat Information: {chat_title}\n"
+                        f"Chat ID: {chat_id}\n\n"
+                        "Configuration:\n"
                         f"• Rate Limit: {chat_config['rate_limit_messages']} per {chat_config['rate_limit_window']}s\n"
                         f"• Translations: EN→ZH: {'on' if chat_config['translate_en_to_zh'] else 'off'}, "
                         f"ZH→EN: {'on' if chat_config['translate_zh_to_en'] else 'off'}\n"
-                        f"• Inactive threshold: {chat_config['inactive_days_threshold']} days\n"
-                        "\n*Statistics:*\n"
+                        f"• Inactive threshold: {chat_config['inactive_days_threshold']} days\n\n"
+                        "Statistics:\n"
                         f"• Total Users: {stats['total_users']}\n"
                         f"• Total Messages: {stats['total_messages']}\n"
-                        f"• Avg Messages/User: {stats['avg_messages_per_user']:.1f}\n"
-                        "\n*Recent Active Users:*\n"
+                        f"• Avg Messages/User: {stats['avg_messages_per_user']:.1f}\n\n"
+                        "Recent Active Users:\n"
                     )
                     
-                    # Add user activity information
                     for user in users:
                         try:
                             member = await context.bot.get_chat_member(chat_id, user['user_id'])
-                            username = member.user.username or member.user.first_name
-                            message += (
-                                f"• {username} "
-                                f"(msgs: {user['messages_count']}, "
-                                f"last: {user['last_active'].split('.')[0]})\n"
+                            username = (
+                                member.user.username or 
+                                member.user.first_name or 
+                                str(user['user_id'])
                             )
-                        except Exception:
+                            timestamp = user['last_active'].split('.')[0]
+                            message += f"• {username} (msgs: {user['messages_count']}, last: {timestamp})\n"
+                        except Exception as e:
+                            logger.warning(f"Could not get member info for {user['user_id']}: {e}")
                             message += f"• User {user['user_id']} (not found)\n"
                     
-                    await update.message.reply_text(message, parse_mode='Markdown')
+                    await update.message.reply_text(message)
                     
                 except Exception as e:
                     logger.error(f"Error processing chat {chat_id}: {e}")
                     await update.message.reply_text(f"Error processing chat {chat_id}")
         
+        # When admin uses command in group chat
         else:
-            # Admin in group chat - show current chat only
             chat_config = await config_manager.get_config(chat_id)
             stats = await db.get_chat_statistics(chat_id)
             users = await db.get_chat_user_activity(chat_id)
             
             config_text = (
-                "*Current Configuration:*\n"
+                "Current Configuration:\n"
                 f"• Rate Limit: {chat_config['rate_limit_messages']} messages per {chat_config['rate_limit_window']}s\n"
                 f"• Inactive threshold: {chat_config['inactive_days_threshold']} days\n"
                 f"• EN→ZH Translation: {'on' if chat_config['translate_en_to_zh'] else 'off'}\n"
-                f"• ZH→EN Translation: {'on' if chat_config['translate_zh_to_en'] else 'off'}\n"
-                "\n*Statistics:*\n"
+                f"• ZH→EN Translation: {'on' if chat_config['translate_zh_to_en'] else 'off'}\n\n"
+                "Statistics:\n"
                 f"• Total Users: {stats['total_users']}\n"
                 f"• Total Messages: {stats['total_messages']}\n"
-                f"• Average Messages/User: {stats['avg_messages_per_user']:.1f}\n"
-                "\n*User Activity blow:*\n"
+                f"• Average Messages/User: {stats['avg_messages_per_user']:.1f}\n\n"
+                "User Activity:\n"
             )
             
-            await update.message.reply_text(config_text, parse_mode='Markdown')
+            await update.message.reply_text(config_text)
             
-            # Send user activity in chunks to avoid message length limits
             user_text = ""
             for user in users:
                 try:
                     member = await context.bot.get_chat_member(chat_id, user['user_id'])
-                    username = member.user.username or member.user.first_name
-                    user_line = (
-                        f"• {username} "
-                        f"(msgs: {user['messages_count']}, "
-                        f"last: {user['last_active'].split('.')[0]})\n"
+                    username = (
+                        member.user.username or 
+                        member.user.first_name or 
+                        str(user['user_id'])
                     )
+                    timestamp = user['last_active'].split('.')[0]
+                    user_line = f"• {username} (msgs: {user['messages_count']}, last: {timestamp})\n"
                     
-                    if len(user_text) + len(user_line) > 3000:  # Telegram message limit safety
-                        await update.message.reply_text(user_text, parse_mode='Markdown')
+                    if len(user_text) + len(user_line) > 3000:
+                        await update.message.reply_text(user_text)
                         user_text = user_line
                     else:
                         user_text += user_line
                         
-                except Exception:
+                except Exception as e:
+                    logger.warning(f"Could not get member info for {user['user_id']}: {e}")
                     continue
             
             if user_text:
-                await update.message.reply_text(user_text, parse_mode='Markdown')
+                await update.message.reply_text(user_text)
+                
         await delete_command_message(update)
+                
     except Exception as e:
         logger.error(f"Error processing print_db: {e}", exc_info=True)
         await update.message.reply_text("An error occurred while fetching database information.")
+        await delete_command_message(update)
 
 async def import_users_command(
     update: Update, 
