@@ -385,7 +385,8 @@ async def print_database_command(
                 "User Activity:\n"
             )
             
-            await update.message.reply_text(config_text)
+            response = await update.message.reply_text(config_text)
+            asyncio.create_task(delete_message_after_delay(response))
             
             user_text = ""
             for user in users:
