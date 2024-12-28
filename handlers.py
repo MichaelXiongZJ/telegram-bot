@@ -65,8 +65,9 @@ async def handle_message(
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
     text = update.message.text
-    
-    logger.info(f"Handling message from user {user_id} in chat {chat_id}")
+    sender_name = update.effective_user.first_name or update.effective_user.username
+
+    logger.info(f"Handling message from user {user_id} ({sender_name}) in chat {chat_id}")
 
     try:
         # Get chat-specific config
@@ -86,8 +87,9 @@ async def handle_message(
                 translated = None
 
             if translated and translated != text:
-                await update.message.reply_text(translated)
-                logger.info(f"Translated message sent: {translated}")
+                reply_text = f"{sender_name}: {translated}"
+                await update.message.reply_text(reply_text)
+                logger.info(f"Translated message sent from {sender_name}: {translated}")
         
         # Update activity time
         logger.debug(f"Updating activity time for user {user_id}")
@@ -146,6 +148,7 @@ async def help_command(
                 "*Admin Commands*\n"
                 "/configure rate\\_limit <number> - Set message rate limit\n"
                 "/configure rate\\_window <seconds> - Set time window\n"
+                "/configure inactive_days <days> - Set inactive threshold\n"
                 "/import\\_user [filename] - Import member to database\n"
                 "/print\\_db - Print the member database."
             )
@@ -384,7 +387,8 @@ async def print_database_command(
                 "User Activity:\n"
             )
             
-            await update.message.reply_text(config_text)
+            response = await update.message.reply_text(config_text)
+            asyncio.create_task(delete_message_after_delay(response))
             
             user_text = ""
             for user in users:
