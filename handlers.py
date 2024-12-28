@@ -226,7 +226,9 @@ async def toggle_translation_en_to_zh(
         current_config['translate_en_to_zh'] = new_state
         await config_manager.update_config(chat_id, current_config)
         state_str = 'enabled' if new_state else 'disabled'
-        await update.message.reply_text(f'EN→ZH (英中翻译): {'✅' if state_str == 'enabled' else '❌'}')
+        CHECK_MARK = '✅' 
+        X_MARK = '❌'
+        await update.message.reply_text(f'EN→ZH (英中翻译): {CHECK_MARK if state_str == "enabled" else X_MARK}')
     except Exception as e:
         logger.error(f"Error toggling EN→ZH translation: {e}")
         await update.message.reply_text("Failed to toggle translation setting")
@@ -245,7 +247,9 @@ async def toggle_translation_zh_to_en(
         current_config['translate_zh_to_en'] = new_state
         await config_manager.update_config(chat_id, current_config)
         state_str = 'enabled' if new_state else 'disabled'
-        await update.message.reply_text(f'ZH→EN (中英翻译): {'✅' if state_str == 'enabled' else '❌'}')
+        CHECK_MARK = '✅'
+        X_MARK = '❌'
+        await update.message.reply_text(f'ZH→EN (中英翻译): {CHECK_MARK if state_str == "enabled" else X_MARK}')
     except Exception as e:
         logger.error(f"Error toggling ZH→EN translation: {e}")
         await update.message.reply_text("Failed to toggle translation setting")
