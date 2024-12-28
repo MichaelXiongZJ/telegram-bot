@@ -10,12 +10,13 @@ from telegram.ext import (
     filters
 )
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from config import BotConfig
 from database import DatabaseManager
 from server_config import ServerConfigManager
+from config import get_config
 from handlers import (
     help_command, configure_command, handle_message,
-    toggle_command, kick_inactive_members, handle_new_members, 
+    toggle_translation_en_to_zh, toggle_translation_zh_to_en,
+    kick_inactive_members, handle_new_members, 
     print_database_command, import_users_command
 )
 
@@ -65,7 +66,10 @@ def setup_logging() -> None:
 async def post_init(application: Application, db: DatabaseManager) -> None:
     logger.info("Running post-init setup")
     try:
+        # Initialize scheduler
         application.bot_data['scheduler'] = AsyncIOScheduler()
+        
+        # Add kick inactive members job
         application.bot_data['scheduler'].add_job(
             lambda: kick_inactive_members(
                 db,
@@ -74,10 +78,34 @@ async def post_init(application: Application, db: DatabaseManager) -> None:
             'interval',
             days=1
         )
+        
+        # Add database cleanup job
+        application.bot_data['scheduler'].add_job(
+            lambda: db.cleanup_old_chats(90),  # Cleanup chats inactive for 90 days
+            'interval',
+            days=7  # Run weekly
+        )
+        
         application.bot_data['scheduler'].start()
         logger.info("Scheduler started successfully")
     except Exception as e:
         logger.error(f"Error in post_init: {e}", exc_info=True)
+
+async def shutdown(application: Application) -> None:
+    """Cleanup resources on shutdown"""
+    logger.info("Running shutdown cleanup")
+    try:
+        # Stop scheduler
+        if 'scheduler' in application.bot_data:
+            application.bot_data['scheduler'].shutdown()
+            
+        # Cleanup database connections
+        if 'config_manager' in application.bot_data:
+            await application.bot_data['config_manager'].cleanup()
+            
+        logger.info("Cleanup completed successfully")
+    except Exception as e:
+        logger.error(f"Error during shutdown: {e}", exc_info=True)
 
 def main() -> None:
     """Start the bot with detailed logging"""
@@ -88,28 +116,29 @@ def main() -> None:
         
         # Load global config
         logger.debug("Loading configuration")
-        bot_config = BotConfig()
+        config = get_config()
         logger.info("Configuration loaded")
 
         # Initialize database and server config manager
         logger.debug("Initializing database and config manager")
-        db = DatabaseManager()
-        config_manager = ServerConfigManager()
+        db = DatabaseManager(config)
+        config_manager = ServerConfigManager(config)
         logger.info("Database and config manager initialized")
 
         # Initialize application
         logger.debug("Building application")
         application = (
             Application.builder()
-            .token(bot_config.TOKEN)
+            .token(config.TOKEN)
             .post_init(lambda app: post_init(app, db))
+            .post_shutdown(shutdown)
             .build()
         )
         logger.info("Application built")
         
         # Store dependencies
         logger.debug("Storing dependencies in application context")
-        application.bot_data['bot_config'] = bot_config
+        application.bot_data['config'] = config
         application.bot_data['db'] = db
         application.bot_data['config_manager'] = config_manager
 
@@ -117,7 +146,7 @@ def main() -> None:
         def get_handler_deps(context):
             return {
                 'db': context.application.bot_data['db'],
-                'bot_config': context.application.bot_data['bot_config'],
+                'config': context.application.bot_data['config'],
                 'config_manager': context.application.bot_data['config_manager']
             }
 
@@ -127,8 +156,10 @@ def main() -> None:
             lambda update, context: help_command(update, context, **get_handler_deps(context))))
         application.add_handler(CommandHandler("configure",
             lambda update, context: configure_command(update, context, **get_handler_deps(context))))
-        application.add_handler(CommandHandler("toggle",
-            lambda update, context: toggle_command(update, context, **get_handler_deps(context))))
+        application.add_handler(CommandHandler("toggle_translation_en_to_zh",
+            lambda update, context: toggle_translation_en_to_zh(update, context, **get_handler_deps(context))))
+        application.add_handler(CommandHandler("toggle_translation_zh_to_en",
+            lambda update, context: toggle_translation_zh_to_en(update, context, **get_handler_deps(context))))
         application.add_handler(CommandHandler("print_db", 
             lambda update, context: print_database_command(update, context, **get_handler_deps(context))))
         application.add_handler(CommandHandler("import_users", 

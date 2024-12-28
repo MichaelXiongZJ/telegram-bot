@@ -1,14 +1,17 @@
 # --- handlers.py ---
 """
-Message and command handlers with professional language detection
+Message and command handlers with improved database interactions
 """
 from telegram import Update
 from telegram.ext import CallbackContext
 import logging
 from deep_translator import GoogleTranslator
-from database import DatabaseManager
 import os
 import re
+from typing import List, Dict
+from config import BotConfig
+from database import DatabaseManager
+from server_config import ServerConfigManager
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +24,7 @@ try:
 except Exception as e:
     logger.error(f"Failed to initialize translator: {e}", exc_info=True)
 
-async def is_admin(update: Update, context: CallbackContext, bot_config) -> bool:
+async def is_admin(update: Update, context: CallbackContext, config: BotConfig) -> bool:
     """Check if user is admin, creator, or bot owner"""
     logger.debug(f"Checking admin status for user {update.effective_user.id}")
     try:
@@ -31,7 +34,7 @@ async def is_admin(update: Update, context: CallbackContext, bot_config) -> bool
             logger.warning("No user or chat in update")
             return False
             
-        if user.id == bot_config.BOT_OWNER_ID:
+        if user.id == config.BOT_OWNER_ID:
             logger.info(f"User {user.id} is bot owner")
             return True
             
@@ -43,10 +46,8 @@ async def is_admin(update: Update, context: CallbackContext, bot_config) -> bool
         logger.error(f"Error checking admin status: {e}", exc_info=True)
         return False
 
-def count_chinese_chars(text: str) -> int:
-    return sum(1 for char in text if '\u4e00' <= char <= '\u9fff')
-
 def detect_language(text: str) -> str:
+    """Detect if text is primarily Chinese or English"""
     chinese_char_pattern = re.compile(r'[\u4e00-\u9fff]')
     chinese_chars = len(chinese_char_pattern.findall(text))
     total_chars = len(text.replace(" ", ""))
@@ -55,7 +56,7 @@ def detect_language(text: str) -> str:
 async def handle_message(
     update: Update,
     context: CallbackContext,
-    db: DatabaseManager,
+    db,
     config_manager,
     **kwargs
 ) -> None:
@@ -64,28 +65,28 @@ async def handle_message(
     chat_id = update.effective_chat.id
     text = update.message.text
     
-    logger.info(f"Handling message from user {user_id} in chat {chat_id}: {text}")
+    logger.info(f"Handling message from user {user_id} in chat {chat_id}")
 
     try:
         # Get chat-specific config
-        config = await config_manager.get_config(chat_id)
+        chat_config = await config_manager.get_config(chat_id)
         
-        if (config['translate_zh_to_en'] or config['translate_en_to_zh']) and text:
+        if (chat_config['translate_zh_to_en'] or chat_config['translate_en_to_zh']) and text:
             logger.debug("Translation is enabled")
             
             detected_lang = detect_language(text)
             logger.info(f"Detected language: {detected_lang}")
-            if detected_lang == 'zh' and config['translate_zh_to_en']:
+            
+            if detected_lang == 'zh' and chat_config['translate_zh_to_en']:
                 translated = translator_zh_to_en.translate(text)
-            elif detected_lang == 'en' and config['translate_en_to_zh']:
+            elif detected_lang == 'en' and chat_config['translate_en_to_zh']:
                 translated = translator_en_to_zh.translate(text)
             else:
                 translated = None
 
             if translated and translated != text:
                 await update.message.reply_text(translated)
-
-            logger.info(f"Translated message: {translated}")
+                logger.info(f"Translated message sent: {translated}")
         
         # Update activity time
         logger.debug(f"Updating activity time for user {user_id}")
@@ -97,59 +98,48 @@ async def handle_message(
 async def help_command(
     update: Update,
     context: CallbackContext,
-    bot_config,
+    config: BotConfig,
     config_manager,
     **kwargs
 ) -> None:
-    """Show help message"""
+    """Show help message with available commands"""
     chat_id = update.effective_chat.id
-    config = await config_manager.get_config(chat_id)
-    
-    help_text = (
-        "*Current Settings:*\n"
-        f"• Rate limit: {config['rate_limit_messages']} messages\n"
-        f"• Time window: {config['rate_limit_window']} seconds\n"
-        f"• Inactive threshold: {config['inactive_days_threshold']} days\n"
-        "*Current Translation Settings:*\n"
-        "/toggle translation* on/off\n"
-        f"• EN -> ZH: {'Enabled' if config['translate_en_to_zh'] else 'Disabled'}\n"
-        f"• ZH -> EN: {'Enabled' if config['translate_zh_to_en'] else 'Disabled'}\n"
-    )
-    
-    help_text_admin = (
-        "*Current Settings:*\n"
-        f"• Rate limit: {config['rate_limit_messages']} messages\n"
-        f"• Time window: {config['rate_limit_window']} seconds\n"
-        f"• Inactive threshold: {config['inactive_days_threshold']} days\n"
-        "\n*Translation Settings:*\n"
-        f"• EN -> ZH: {'Enabled' if config['translate_en_to_zh'] else 'Disabled'}\n"
-        f"• ZH -> EN: {'Enabled' if config['translate_zh_to_en'] else 'Disabled'}\n"
-        "\n*Available Commands:*\n"
-        "• /toggle translation_en_to_zh on/off\n"
-        "• /toggle translation_zh_to_en on/off\n"
-        "• /configure rate_limit <number>\n"
-        "• /configure rate_window <seconds>\n"
-        "• /configure inactive_days <days>\n"
-        "• /print_db to print all entries in database"
-    )
-
     try:
-        if await is_admin(update, context, bot_config):
-            await update.message.reply_text(
-                help_text_admin,
+        chat_config = await config_manager.get_config(chat_id)
+        
+        # Basic settings info for all users
+        help_text = (
+            "*Settings*\n"
+            f"Rate limit: {chat_config['rate_limit_messages']} messages per {chat_config['rate_limit_window']}s\n"
+            f"Inactive days threshold: {chat_config['inactive_days_threshold']} days\n"
+            f"*Translations:*\n"
+            "/toggle\\_translation\\_en\\_to\\_zh - Toggle EN→ZH translation\n"
+            "/toggle\\_translation\\_zh\\_to\\_en - Toggle ZH→EN translation\n"
+            "Current Setting: "
+            f"EN→ZH {'on' if chat_config['translate_en_to_zh'] else 'off'}, "
+            f"ZH→EN {'on' if chat_config['translate_zh_to_en'] else 'off'}\n"
+        )
+
+        # Add admin commands if user is admin
+        if await is_admin(update, context, config):
+            help_text += (
+                "*Admin Commands*\n"
+                "/configure rate\\_limit <number> - Set message rate limit\n"
+                "/configure rate\\_window <seconds> - Set time window\n"
+                "/import\\_user [filename] - Import member to database\n"
+                "/print\\_db - Print the member database."
             )
-        else:   
-            await update.message.reply_text(
-                help_text,
-            )
+
+        await update.message.reply_text(help_text, parse_mode='Markdown')
+
     except Exception as e:
-        logger.error(f"Error sending help: {e}")
-        await update.message.reply_text(help_text)
+        logger.error(f"Error in help command: {e}")
+        await update.message.reply_text("Error showing help. Please try again later.")
 
 async def handle_new_members(
     update: Update,
     context: CallbackContext,
-    db: DatabaseManager,
+    db,
     **kwargs
 ) -> None:
     """Handle new members joining the chat"""
@@ -168,21 +158,21 @@ async def handle_new_members(
 async def configure_command(
     update: Update,
     context: CallbackContext,
-    bot_config,
+    config: BotConfig,
     config_manager,
     **kwargs
 ) -> None:
     """Handle bot configuration"""
     chat_id = update.effective_chat.id
     
-    if not await is_admin(update, context, bot_config):
+    if not await is_admin(update, context, config):
         await update.message.reply_text('This command is only available to administrators.')
         return
 
     if len(context.args) != 2:
         await update.message.reply_text(
             'Usage: /configure <setting> <value>\n'
-            'Available settings:\n'
+            'Available commands:\n'
             '• rate_limit - Messages per time window\n'
             '• rate_window - Time window in seconds\n'
             '• inactive_days - Days before user is considered inactive'
@@ -220,118 +210,172 @@ async def configure_command(
     except ValueError:
         await update.message.reply_text('Value must be a number')
 
-async def toggle_command(
+async def toggle_translation_en_to_zh(
     update: Update,
     context: CallbackContext,
     config_manager,
     **kwargs
 ) -> None:
-    """Toggle features on/off"""
+    """Toggle English to Chinese translation"""
     chat_id = update.effective_chat.id
-    current_config = await config_manager.get_config(chat_id)
-    
-    if len(context.args) != 2:
-        await update.message.reply_text(
-            'Usage: /toggle <feature> <on/off>\n'
-            'Available features:\n'
-            '• translation_en_to_zh - English to Chinese translation\n'
-            '• translation_zh_to_en - Chinese to English translation'
-        )
-        return
+    try:
+        current_config = await config_manager.get_config(chat_id)
+        new_state = not current_config['translate_en_to_zh']
+        current_config['translate_en_to_zh'] = new_state
+        await config_manager.update_config(chat_id, current_config)
+        state_str = 'enabled' if new_state else 'disabled'
+        await update.message.reply_text(f'English to Chinese translation has been {state_str}')
+    except Exception as e:
+        logger.error(f"Error toggling EN→ZH translation: {e}")
+        await update.message.reply_text("Failed to toggle translation setting")
 
-    feature, state = context.args[0].lower(), context.args[1].lower()
-    if feature == 'translation_en_to_zh':
-        if state in ['on', 'off']:
-            current_config['translate_en_to_zh'] = (state == 'on')
-            await config_manager.update_config(chat_id, current_config)
-            await update.message.reply_text(f'English to Chinese translation has been turned {state}')
-        else:
-            await update.message.reply_text('State must be "on" or "off"')
-    elif feature == 'translation_zh_to_en':
-        if state in ['on', 'off']:
-            current_config['translate_zh_to_en'] = (state == 'on')
-            await config_manager.update_config(chat_id, current_config)
-            await update.message.reply_text(f'Chinese to English translation has been turned {state}')
-        else:
-            await update.message.reply_text('State must be "on" or "off"')
-    else:
-        await update.message.reply_text('Invalid feature')
-
-async def print_database_command(
-    update: Update, 
-    context: CallbackContext, 
-    bot_config,
-    db: DatabaseManager,
+async def toggle_translation_zh_to_en(
+    update: Update,
+    context: CallbackContext,
     config_manager,
     **kwargs
 ) -> None:
-    """Print all database entries when the command /print_db is issued."""
-    logger.info("Received /print_db command")
-    if not await is_admin(update, context, bot_config):
+    """Toggle Chinese to English translation"""
+    chat_id = update.effective_chat.id
+    try:
+        current_config = await config_manager.get_config(chat_id)
+        new_state = not current_config['translate_zh_to_en']
+        current_config['translate_zh_to_en'] = new_state
+        await config_manager.update_config(chat_id, current_config)
+        state_str = 'enabled' if new_state else 'disabled'
+        await update.message.reply_text(f'Chinese to English translation has been {state_str}')
+    except Exception as e:
+        logger.error(f"Error toggling ZH→EN translation: {e}")
+        await update.message.reply_text("Failed to toggle translation setting")
+
+async def print_database_command(
+    update: Update, 
+    context: CallbackContext,
+    config: BotConfig,
+    db: DatabaseManager,
+    config_manager: ServerConfigManager,
+    **kwargs
+) -> None:
+    """Print database information based on context and user permissions"""
+    user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+    chat_type = update.effective_chat.type
+    
+    # Check if it's the owner in DM
+    is_owner = user_id == config.BOT_OWNER_ID
+    is_private = chat_type == 'private'
+    
+    if not (is_owner and is_private) and not await is_admin(update, context, config):
         await update.message.reply_text('This command is only available to administrators.')
         return
+
     try:
-        entries = await db.get_all_entries()
-        chat_id = update.effective_chat.id
-        config = await config_manager.get_config(chat_id)
+        if is_owner and is_private:
+            # Owner in DM - show all chats
+            chat_ids = await db.get_all_chat_ids()
+            for chat_id in chat_ids:
+                try:
+                    chat = await context.bot.get_chat(chat_id)
+                    chat_title = chat.title or f"Chat {chat_id}"
+                    
+                    # Get chat config
+                    chat_config = await config_manager.get_config(chat_id)
+                    stats = await db.get_chat_statistics(chat_id)
+                    users = await db.get_chat_user_activity(chat_id, limit=10)  # Top 10 active users
+                    
+                    # Format message for each chat
+                    message = (
+                        f"\n*{chat_title}*\n"
+                        f"Chat ID: `{chat_id}`\n"
+                        "\n*Configuration:*\n"
+                        f"• Rate Limit: {chat_config['rate_limit_messages']} per {chat_config['rate_limit_window']}s\n"
+                        f"• Translations: EN→ZH: {'on' if chat_config['translate_en_to_zh'] else 'off'}, "
+                        f"ZH→EN: {'on' if chat_config['translate_zh_to_en'] else 'off'}\n"
+                        f"• Inactive threshold: {chat_config['inactive_days_threshold']} days\n"
+                        "\n*Statistics:*\n"
+                        f"• Total Users: {stats['total_users']}\n"
+                        f"• Total Messages: {stats['total_messages']}\n"
+                        f"• Avg Messages/User: {stats['avg_messages_per_user']:.1f}\n"
+                        "\n*Recent Active Users:*\n"
+                    )
+                    
+                    # Add user activity information
+                    for user in users:
+                        try:
+                            member = await context.bot.get_chat_member(chat_id, user['user_id'])
+                            username = member.user.username or member.user.first_name
+                            message += (
+                                f"• {username} "
+                                f"(msgs: {user['messages_count']}, "
+                                f"last: {user['last_active'].split('.')[0]})\n"
+                            )
+                        except Exception:
+                            message += f"• User {user['user_id']} (not found)\n"
+                    
+                    await update.message.reply_text(message, parse_mode='Markdown')
+                    
+                except Exception as e:
+                    logger.error(f"Error processing chat {chat_id}: {e}")
+                    await update.message.reply_text(f"Error processing chat {chat_id}")
         
-        if not entries:
-            await update.effective_message.reply_text("No entries in the database.")
         else:
-            entry_text = '\n'.join([f"User {e['user_id']} in Chat {e['chat_id']} - Last Active: {e['last_active']}" for e in entries])
-            await update.effective_message.reply_text(f"*Database Entries:*\n{entry_text}", parse_mode='Markdown')
+            # Admin in group chat - show current chat only
+            chat_config = await config_manager.get_config(chat_id)
+            stats = await db.get_chat_statistics(chat_id)
+            users = await db.get_chat_user_activity(chat_id)
             
-            # Also show current chat's configuration
             config_text = (
-                "\n*Current Chat Configuration:*\n"
-                f"Rate Limit: {config['rate_limit_messages']} messages per {config['rate_limit_window']} seconds\n"
-                f"Inactive Days: {config['inactive_days_threshold']}\n"
-                f"EN->ZH Translation: {'Enabled' if config['translate_en_to_zh'] else 'Disabled'}\n"
-                f"ZH->EN Translation: {'Enabled' if config['translate_zh_to_en'] else 'Disabled'}"
+                "*Current Configuration:*\n"
+                f"• Rate Limit: {chat_config['rate_limit_messages']} messages per {chat_config['rate_limit_window']}s\n"
+                f"• Inactive threshold: {chat_config['inactive_days_threshold']} days\n"
+                f"• EN→ZH Translation: {'on' if chat_config['translate_en_to_zh'] else 'off'}\n"
+                f"• ZH→EN Translation: {'on' if chat_config['translate_zh_to_en'] else 'off'}\n"
+                "\n*Statistics:*\n"
+                f"• Total Users: {stats['total_users']}\n"
+                f"• Total Messages: {stats['total_messages']}\n"
+                f"• Average Messages/User: {stats['avg_messages_per_user']:.1f}\n"
+                "\n*User Activity:*\n"
             )
-            await update.effective_message.reply_text(config_text, parse_mode='Markdown')
+            
+            await update.message.reply_text(config_text, parse_mode='Markdown')
+            
+            # Send user activity in chunks to avoid message length limits
+            user_text = ""
+            for user in users:
+                try:
+                    member = await context.bot.get_chat_member(chat_id, user['user_id'])
+                    username = member.user.username or member.user.first_name
+                    user_line = (
+                        f"• {username} "
+                        f"(msgs: {user['messages_count']}, "
+                        f"last: {user['last_active'].split('.')[0]})\n"
+                    )
+                    
+                    if len(user_text) + len(user_line) > 3000:  # Telegram message limit safety
+                        await update.message.reply_text(user_text, parse_mode='Markdown')
+                        user_text = user_line
+                    else:
+                        user_text += user_line
+                        
+                except Exception:
+                    continue
+            
+            if user_text:
+                await update.message.reply_text(user_text, parse_mode='Markdown')
+                
     except Exception as e:
-        logger.error(f"Error processing /print_db: {e}", exc_info=True)
-        await update.effective_message.reply_text("Failed to fetch database entries.")
-
-async def kick_inactive_members(
-    db: DatabaseManager,
-    context: CallbackContext
-) -> None:
-    """Kick inactive members from the group"""
-    try:
-        chat_id = context.bot_data.get('chat_id')
-        if not chat_id:
-            return
-
-        # Get chat-specific config
-        config_manager = context.bot_data['config_manager']
-        config = await config_manager.get_config(chat_id)
-        
-        inactive_users = await db.get_inactive_users(
-            chat_id,
-            config['inactive_days_threshold']
-        )
-        
-        for user_id in inactive_users:
-            try:
-                await context.bot.ban_chat_member(chat_id, user_id)
-                await context.bot.unban_chat_member(chat_id, user_id)  # Unban so they can rejoin
-                logger.info(f"Kicked inactive user {user_id} from chat {chat_id}")
-            except Exception as e:
-                logger.error(f"Failed to kick user {user_id}: {e}")
-    except Exception as e:
-        logger.error(f"Error in kick_inactive_members: {e}")
+        logger.error(f"Error processing print_db: {e}", exc_info=True)
+        await update.message.reply_text("An error occurred while fetching database information.")
 
 async def import_users_command(
     update: Update, 
-    context: CallbackContext, 
-    bot_config,
-    db: DatabaseManager,
+    context: CallbackContext,
+    config: BotConfig,
+    db,
     **kwargs
 ) -> None:
-    """Handle /import_users [filename] command to import users from a file in csv directory."""
-    if not await is_admin(update, context, bot_config):
+    """Handle /import_users command"""
+    if not await is_admin(update, context, config):
         await update.message.reply_text('This command is only available to administrators.')
         return
         
@@ -346,10 +390,56 @@ async def import_users_command(
         await update.message.reply_text(f"File {filename} not found in csv directory.")
         return
 
-    logger.info(f"Loading users from {file_path}")
     try:
-        await db.import_users_from_file(file_path)
-        await update.message.reply_text(f"Users imported successfully from {filename}.")
+        stats = await db.import_users_from_file(
+            file_path,
+            default_chat_id=update.effective_chat.id
+        )
+        
+        # Send detailed response
+        response = (
+            f"Import completed:\n"
+            f"✅ Successful: {stats['success']}\n"
+            f"❌ Errors: {stats['errors']}\n"
+            f"📝 Total processed: {stats['processed']}"
+        )
+        
+        if stats['errors'] > 0:
+            response += "\n\nError details:\n" + "\n".join(stats['error_details'][:5])
+            if len(stats['error_details']) > 5:
+                response += f"\n...and {len(stats['error_details']) - 5} more errors"
+                
+        await update.message.reply_text(response)
+        
     except Exception as e:
         logger.error(f"Error during user import: {e}", exc_info=True)
-        await update.message.reply_text(f"Failed to import users from {filename}.")
+        await update.message.reply_text(f"Failed to import users from {filename}: {str(e)}")
+
+async def kick_inactive_members(
+    db,
+    context: CallbackContext
+) -> None:
+    """Kick inactive members from the group"""
+    try:
+        chat_id = context.bot_data.get('chat_id')
+        if not chat_id:
+            return
+
+        # Get chat-specific config
+        config_manager = context.bot_data['config_manager']
+        chat_config = await config_manager.get_config(chat_id)
+        
+        inactive_users = await db.get_inactive_users(
+            chat_id,
+            chat_config['inactive_days_threshold']
+        )
+        
+        for user_id in inactive_users:
+            try:
+                await context.bot.ban_chat_member(chat_id, user_id)
+                await context.bot.unban_chat_member(chat_id, user_id)  # Unban so they can rejoin
+                logger.info(f"Kicked inactive user {user_id} from chat {chat_id}")
+            except Exception as e:
+                logger.error(f"Failed to kick user {user_id}: {e}")
+    except Exception as e:
+        logger.error(f"Error in kick_inactive_members: {e}")
