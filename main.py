@@ -12,6 +12,7 @@ from telegram.ext import (
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from config import BotConfig
 from database import DatabaseManager
+from server_config import ServerConfigManager
 from handlers import (
     help_command, configure_command, handle_message,
     toggle_command, kick_inactive_members, handle_new_members, 
@@ -32,12 +33,12 @@ def setup_logging() -> None:
 
     # Set up root logger
     root_logger = logging.getLogger()
-    root_logger.setLevel(logging.DEBUG)  # Set to DEBUG for maximum detail
+    root_logger.setLevel(logging.DEBUG)
 
     # File handler with rotation
     log_file = 'bot_debug.log'
     max_log_size = 5 * 1024 * 1024  # 5 MB
-    backup_count = 3  # Keep up to 3 old log files
+    backup_count = 3
 
     file_handler = RotatingFileHandler(
         log_file,
@@ -61,14 +62,13 @@ def setup_logging() -> None:
 
     logger.info("Logging system initialized with size limit")
 
-async def post_init(application: Application, db: DatabaseManager, config: BotConfig) -> None:
+async def post_init(application: Application, db: DatabaseManager) -> None:
     logger.info("Running post-init setup")
     try:
         application.bot_data['scheduler'] = AsyncIOScheduler()
         application.bot_data['scheduler'].add_job(
             lambda: kick_inactive_members(
                 db,
-                config,
                 application
             ),
             'interval',
@@ -86,36 +86,39 @@ def main() -> None:
         setup_logging()
         logger.info("Starting bot initialization...")
         
-        # Load config
+        # Load global config
         logger.debug("Loading configuration")
-        config = BotConfig()
+        bot_config = BotConfig()
         logger.info("Configuration loaded")
 
-        # Initialize database
-        logger.debug("Initializing database")
+        # Initialize database and server config manager
+        logger.debug("Initializing database and config manager")
         db = DatabaseManager()
-        logger.info("Database initialized")
+        config_manager = ServerConfigManager()
+        logger.info("Database and config manager initialized")
 
         # Initialize application
         logger.debug("Building application")
         application = (
             Application.builder()
-            .token(config.TOKEN)
-            .post_init(lambda app: post_init(app, db, config))
+            .token(bot_config.TOKEN)
+            .post_init(lambda app: post_init(app, db))
             .build()
         )
         logger.info("Application built")
         
         # Store dependencies
         logger.debug("Storing dependencies in application context")
-        application.bot_data['config'] = config
+        application.bot_data['bot_config'] = bot_config
         application.bot_data['db'] = db
+        application.bot_data['config_manager'] = config_manager
 
         # Setup handler dependencies
         def get_handler_deps(context):
             return {
                 'db': context.application.bot_data['db'],
-                'config': context.application.bot_data['config']
+                'bot_config': context.application.bot_data['bot_config'],
+                'config_manager': context.application.bot_data['config_manager']
             }
 
         # Add handlers
@@ -129,7 +132,7 @@ def main() -> None:
         application.add_handler(CommandHandler("print_db", 
             lambda update, context: print_database_command(update, context, **get_handler_deps(context))))
         application.add_handler(CommandHandler("import_users", 
-            lambda update, context: import_users_command(update, context, db)))
+            lambda update, context: import_users_command(update, context, **get_handler_deps(context))))
 
         logger.debug("Adding message handlers")
         application.add_handler(MessageHandler(
