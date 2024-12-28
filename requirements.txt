@@ -1,9 +1,23 @@
-aiosqlite
-python-telegram-bot==20.3
+# Core dependencies
+python-telegram-bot
 pydantic
-deep-translator
-asyncio
-apscheduler
-urllib3
 pydantic-settings
 python-dotenv
+
+# Database
+aiosqlite
+
+# Translation
+openai
+deep-translator
+
+# Task scheduling
+APScheduler
+nest_asyncio
+
+# Utilities
+tiktoken
+numpy
+
+# Type hints
+typing-extensions

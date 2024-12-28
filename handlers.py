@@ -1,11 +1,10 @@
 # --- handlers.py ---
 """
-Message and command handlers with improved database interactions
+Message and command handlers with enhanced translation capabilities
 """
 from telegram import Update
 from telegram.ext import CallbackContext
 import logging
-from deep_translator import GoogleTranslator
 import os
 import re
 import asyncio
@@ -13,17 +12,9 @@ from typing import List, Dict
 from config import BotConfig
 from database import DatabaseManager
 from server_config import ServerConfigManager
+import json
 
 logger = logging.getLogger(__name__)
-
-# Initialize translator
-logger.info("Initializing translators...")
-try:
-    translator_en_to_zh = GoogleTranslator(source='en', target='zh-CN')
-    translator_zh_to_en = GoogleTranslator(source='zh-CN', target='en')
-    logger.info("Translators initialized successfully")
-except Exception as e:
-    logger.error(f"Failed to initialize translator: {e}", exc_info=True)
 
 async def is_admin(update: Update, context: CallbackContext, config: BotConfig) -> bool:
     """Check if user is admin, creator, or bot owner"""
@@ -61,7 +52,8 @@ async def handle_message(
     config_manager,
     **kwargs
 ) -> None:
-    """Handle regular messages with translation support"""
+    """Handle regular messages with enhanced translation"""
+    context.application.bot_data['context'] = context
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
     text = update.message.text
@@ -72,31 +64,151 @@ async def handle_message(
     try:
         # Get chat-specific config
         chat_config = await config_manager.get_config(chat_id)
+        translation_manager = context.bot_data.get('translation_manager')
         
-        if (chat_config['translate_zh_to_en'] or chat_config['translate_en_to_zh']) and text:
-            logger.debug("Translation is enabled")
-            
-            detected_lang = detect_language(text)
-            logger.info(f"Detected language: {detected_lang}")
-            
-            if detected_lang == 'zh' and chat_config['translate_zh_to_en']:
-                translated = translator_zh_to_en.translate(text)
-            elif detected_lang == 'en' and chat_config['translate_en_to_zh']:
-                translated = translator_en_to_zh.translate(text)
-            else:
-                translated = None
+        if translation_manager and text:
+            if (chat_config['translate_zh_to_en'] or chat_config['translate_en_to_zh']):
+                detected_lang = detect_language(text)
+                logger.debug(f"Detected language: {detected_lang}")
+                
+                if detected_lang == 'zh' and chat_config['translate_zh_to_en']:
+                    result = await translation_manager.translate(
+                        text=text,
+                        source_lang='zh',
+                        target_lang='en',
+                        context_type='group'
+                    )
+                    translated = result['translation']
+                elif detected_lang == 'en' and chat_config['translate_en_to_zh']:
+                    result = await translation_manager.translate(
+                        text=text,
+                        source_lang='en',
+                        target_lang='zh',
+                        context_type='group'
+                    )
+                    translated = result['translation']
+                else:
+                    translated = None
 
-            if translated and translated != text:
-                reply_text = f"{sender_name}: {translated}"
-                await update.message.reply_text(reply_text)
-                logger.info(f"Translated message sent from {sender_name}: {translated}")
+                if translated and translated != text:
+                    reply_text = f"{sender_name}: {translated}"
+                    message = await update.message.reply_text(reply_text)
+                    
+                    # Log translation details
+                    logger.info(
+                        f"Translation sent from {sender_name} "
+                        f"(source: {result.get('source', 'unknown')}, "
+                        f"quality: {result.get('quality_score', 0):.2f})"
+                    )
         
         # Update activity time
-        logger.debug(f"Updating activity time for user {user_id}")
         await db.update_user_activity(user_id, chat_id)
         
     except Exception as e:
         logger.error(f"Error in handle_message: {e}", exc_info=True)
+
+async def translation_stats_command(
+    update: Update,
+    context: CallbackContext,
+    config: BotConfig,
+    **kwargs
+) -> None:
+    """Show translation statistics for admins"""
+    if not await is_admin(update, context, config):
+        response = await update.message.reply_text('This command is only available to administrators.')
+        asyncio.create_task(delete_message_after_delay(response))
+        return
+
+    translation_manager = context.bot_data.get('translation_manager')
+    if not translation_manager:
+        await update.message.reply_text("Translation system not initialized.")
+        return
+
+    try:
+        stats = await translation_manager.get_usage_statistics()
+        
+        message = (
+            "*Translation System Statistics*\n\n"
+            f"*Token Usage:*\n"
+            f"• Total Tokens: {stats['total_tokens']:,}\n"
+            f"• Total Cost: ${stats['total_cost']:.2f}\n\n"
+            f"*Cache Performance:*\n"
+            f"• Total Translations: {stats['translations_count']:,}\n"
+            f"• Cache Hit Rate: {stats['cache_hit_rate']:.1%}\n"
+            f"• Average Quality: {stats['cache_stats']['avg_quality']:.2f}\n\n"
+            f"*System Status:*\n"
+            f"• Active Entries: {stats['cache_stats']['active_entries']:,}\n"
+            f"• High Quality Entries: {stats['cache_stats']['high_quality_entries']:,}"
+        )
+        
+        await update.message.reply_text(message, parse_mode='Markdown')
+        
+    except Exception as e:
+        logger.error(f"Error getting translation stats: {e}")
+        await update.message.reply_text("Error retrieving translation statistics.")
+
+async def translation_cache_command(
+    update: Update,
+    context: CallbackContext,
+    config: BotConfig,
+    **kwargs
+) -> None:
+    """Manage translation cache"""
+    if not await is_admin(update, context, config):
+        response = await update.message.reply_text('This command is only available to administrators.')
+        asyncio.create_task(delete_message_after_delay(response))
+        return
+
+    translation_manager = context.bot_data.get('translation_manager')
+    if not translation_manager:
+        await update.message.reply_text("Translation system not initialized.")
+        return
+
+    if len(context.args) < 1:
+        await update.message.reply_text(
+            "Usage:\n"
+            "/translation_cache clear - Clear cache\n"
+            "/translation_cache stats - Show statistics\n"
+            "/translation_cache history [limit] - Show recent translations"
+        )
+        return
+
+    subcommand = context.args[0].lower()
+    
+    try:
+        if subcommand == 'clear':
+            await translation_manager.cache.cleanup(0)
+            await update.message.reply_text("Translation cache cleared.")
+            
+        elif subcommand == 'stats':
+            stats = await translation_manager.cache._get_cache_stats()
+            message = (
+                "*Cache Statistics*\n\n"
+                f"• Total Entries: {stats['total_entries']:,}\n"
+                f"• Active Entries: {stats['active_entries']:,}\n"
+                f"• Average Quality: {stats['avg_quality']:.2f}\n"
+                f"• Hit Rate: {stats['hit_rate']:.1%}"
+            )
+            await update.message.reply_text(message, parse_mode='Markdown')
+            
+        elif subcommand == 'history':
+            limit = int(context.args[1]) if len(context.args) > 1 else 10
+            history = await translation_manager.cache.get_translation_history(limit)
+            
+            message = "*Recent Translations:*\n\n"
+            for entry in history:
+                message += (
+                    f"Original: {entry[0]}\n"
+                    f"Translated: {entry[1]}\n"
+                    f"Quality: {entry[2]:.2f}\n"
+                    f"Used: {entry[4]} times\n\n"
+                )
+            
+            await update.message.reply_text(message, parse_mode='Markdown')
+            
+    except Exception as e:
+        logger.error(f"Error in translation_cache command: {e}")
+        await update.message.reply_text(f"Error: {str(e)}")
 
 async def delete_message_after_delay(message, delay_seconds: int = 15):
     """Delete a message after specified delay"""
@@ -121,7 +233,7 @@ async def help_command(
     config_manager,
     **kwargs
 ) -> None:
-    """Show help message with available commands"""
+    """Show enhanced help message with all available commands"""
     # Delete command message immediately
     asyncio.create_task(delete_command_message(update))
     
@@ -129,32 +241,42 @@ async def help_command(
     try:
         chat_config = await config_manager.get_config(chat_id)
         
+        # Base help text
         help_text = (
-            f"*Translations (翻译设置):*\n"
-            "Toggle EN→ZH translation (开关英中翻译):\n"
-            "\t\t/toggle\\_translation\\_en\\_to\\_zh\n"
-            "Toggle ZH→EN translation (开关中英翻译):\n"
-            "\t\t/toggle\\_translation\\_zh\\_to\\_en\n"
-            "Current Setting:\n"
-            f"EN→ZH (英中翻译) {'✅' if chat_config['translate_en_to_zh'] else '❌'}, "
-            f"ZH→EN (中英翻译) {'✅' if chat_config['translate_zh_to_en'] else '❌'}\n"
+            "*Translation Bot Help*\n\n"
+            "*Translation Settings:*\n"
+            "• EN→ZH Translation (英中翻译):\n"
+            "  `/toggle_translation_en_to_zh`\n"
+            "• ZH→EN Translation (中英翻译):\n"
+            "  `/toggle_translation_zh_to_en`\n\n"
+            "*Current Settings:*\n"
+            f"• EN→ZH: {'✅' if chat_config['translate_en_to_zh'] else '❌'}\n"
+            f"• ZH→EN: {'✅' if chat_config['translate_zh_to_en'] else '❌'}\n"
+            f"• Rate Limit: {chat_config['rate_limit_messages']} msgs per {chat_config['rate_limit_window']}s\n\n"
         )
 
+        # Add admin commands if user is admin
         if await is_admin(update, context, config):
             help_text += (
-                "*Settings*\n"
-                f"Rate limit: {chat_config['rate_limit_messages']} messages per {chat_config['rate_limit_window']}s\n"
-                f"Inactive days threshold: {chat_config['inactive_days_threshold']} days\n"
-                "*Admin Commands*\n"
-                "/configure rate\\_limit <number> - Set message rate limit\n"
-                "/configure rate\\_window <seconds> - Set time window\n"
-                "/configure inactive_days <days> - Set inactive threshold\n"
-                "/import\\_user [filename] - Import member to database\n"
-                "/print\\_db - Print the member database."
+                "*Admin Commands:*\n"
+                "• `/configure rate_limit <number>` - Set message rate limit\n"
+                "• `/configure rate_window <seconds>` - Set time window\n"
+                "• `/configure inactive_days <days>` - Set inactive threshold\n"
+                "• `/import_users [filename]` - Import members to database\n"
+                "• `/print_db` - View member database\n\n"
+                "*Translation Admin Commands:*\n"
+                "• `/translation_stats` - View translation statistics\n"
+                "• `/translation_cache stats` - View cache statistics\n"
+                "• `/translation_cache clear` - Clear translation cache\n"
+                "• `/translation_cache history [limit]` - View recent translations\n\n"
+                "*Current Settings:*\n"
+                f"• Inactive threshold: {chat_config['inactive_days_threshold']} days\n"
+                f"• Rate limit: {chat_config['rate_limit_messages']} per {chat_config['rate_limit_window']}s"
             )
 
         response = await update.message.reply_text(help_text, parse_mode='Markdown')
-        asyncio.create_task(delete_message_after_delay(response))
+        asyncio.create_task(delete_message_after_delay(response, 30))
+        
     except Exception as e:
         logger.error(f"Error in help command: {e}")
         response = await update.message.reply_text("Error showing help. Please try again later.")
