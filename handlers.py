@@ -146,6 +146,7 @@ async def help_command(
                 "*Admin Commands*\n"
                 "/configure rate\\_limit <number> - Set message rate limit\n"
                 "/configure rate\\_window <seconds> - Set time window\n"
+                "/configure inactive_days <days> - Set inactive threshold\n"
                 "/import\\_user [filename] - Import member to database\n"
                 "/print\\_db - Print the member database."
             )
